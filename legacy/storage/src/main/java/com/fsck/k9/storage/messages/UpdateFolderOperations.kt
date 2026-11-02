@@ -19,6 +19,17 @@ internal class UpdateFolderOperations(private val lockableDatabase: LockableData
         }
     }
 
+    fun renameFolder(folderServerId: String, newFolderServerId: String, name: String) {
+        lockableDatabase.execute(false) { db ->
+            val values = ContentValues().apply {
+                put("server_id", newFolderServerId)
+                put("name", name.replace("\\[(Gmail|Google Mail)]/".toRegex(), ""))
+            }
+
+            db.update("folders", values, "server_id = ?", arrayOf(folderServerId))
+        }
+    }
+
     fun updateFolderSettings(folderDetails: FolderDetails) {
         lockableDatabase.execute(false) { db ->
             val contentValues = ContentValues().apply {
