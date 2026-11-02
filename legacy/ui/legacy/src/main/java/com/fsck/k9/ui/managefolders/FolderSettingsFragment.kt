@@ -16,6 +16,7 @@ import com.fsck.k9.fragment.ConfirmationDialogFragment.ConfirmationDialogFragmen
 import com.fsck.k9.ui.R
 import com.fsck.k9.ui.base.livedata.observeNotNull
 import com.takisoft.preferencex.PreferenceFragmentCompat
+import net.thunderbird.feature.mail.folder.api.Folder
 import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
 import com.fsck.k9.ui.base.R as BaseR
@@ -127,8 +128,7 @@ class FolderSettingsFragment : PreferenceFragmentCompat(), ConfirmationDialogFra
             is Action.ShowCreateSubfolderDialog -> showCreateSubfolderDialog(action)
             is Action.ShowRenameFolderDialog -> showRenameFolderDialog(action)
             is Action.ShowDeleteFolderConfirmationDialog -> showDeleteFolderConfirmationDialog()
-            is Action.ShowFolderOperationResult -> handleFolderOperationResult(action.event)
-            is Action.UpdateFolder -> updateFolder(action)
+            is Action.ShowFolderOperationResult -> handleFolderOperationResult(action)
         }
     }
 
@@ -167,16 +167,19 @@ class FolderSettingsFragment : PreferenceFragmentCompat(), ConfirmationDialogFra
         dialogFragment.show(requireFragmentManager(), TAG_DELETE_FOLDER_CONFIRMATION)
     }
 
-    private fun handleFolderOperationResult(event: FolderOperationEvent) {
+    private fun handleFolderOperationResult(action: Action.ShowFolderOperationResult) {
+        val event = action.event
         showFolderOperationResult(event)
+
+        action.updatedFolder?.let { updateFolder(it) }
 
         if (event.operation == FolderOperation.DELETE && event.result == FolderOperationResult.Success) {
             navigateBack()
         }
     }
 
-    private fun updateFolder(action: Action.UpdateFolder) {
-        val folderDisplayName = folderNameFormatter.displayName(action.folder)
+    private fun updateFolder(folder: Folder) {
+        val folderDisplayName = folderNameFormatter.displayName(folder)
         findPreference<Preference>(PREFERENCE_TOP_CATEGORY)?.title = folderDisplayName
         updateMenu()
     }

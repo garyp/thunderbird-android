@@ -39,6 +39,7 @@ class ManageFoldersFragment : Fragment() {
 
     private lateinit var account: LegacyAccountDto
     private lateinit var itemAdapter: ItemAdapter<FolderListItem>
+    private var isFolderManagementSupported = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -66,7 +67,7 @@ class ManageFoldersFragment : Fragment() {
                     folderMenuItem.isVisible = !folderMenuItem.isActionViewExpanded
 
                     menu.findItem(R.id.create_folder).isVisible = !folderMenuItem.isActionViewExpanded &&
-                        viewModel.supportsFolderManagement(account)
+                        isFolderManagementSupported
                 }
 
                 override fun onMenuItemSelected(menuItem: MenuItem): Boolean {
@@ -91,6 +92,11 @@ class ManageFoldersFragment : Fragment() {
 
         viewModel.getFolders(account).observeNotNull(this) { folders ->
             updateFolderList(folders)
+        }
+
+        viewModel.getFolderManagementSupported(account).observeNotNull(viewLifecycleOwner) { supported ->
+            isFolderManagementSupported = supported
+            requireActivity().invalidateOptionsMenu()
         }
 
         childFragmentManager.setFragmentResultListener(REQUEST_CREATE_FOLDER, viewLifecycleOwner) { _, result ->

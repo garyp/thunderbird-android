@@ -38,31 +38,42 @@ internal fun Fragment.setFolderOperationProgressVisible(visible: Boolean) {
 
 internal fun Fragment.showFolderOperationResult(event: FolderOperationEvent) {
     val message = when (val result = event.result) {
-        FolderOperationResult.Success -> when (event.operation) {
-            FolderOperation.CREATE -> getString(R.string.folder_operation_created)
-            FolderOperation.RENAME -> getString(R.string.folder_operation_renamed)
-            FolderOperation.DELETE -> getString(R.string.folder_operation_deleted)
-        }
-        is FolderOperationResult.InvalidName -> when (result.error) {
-            FolderNameError.EMPTY -> getString(R.string.folder_name_error_empty)
-            FolderNameError.CONTAINS_DELIMITER -> getString(R.string.folder_name_error_invalid_character)
-            FolderNameError.INVALID_CHARACTER -> getString(R.string.folder_name_error_invalid_character)
-            FolderNameError.RESERVED_NAME -> getString(R.string.folder_name_error_reserved_name)
-        }
+        FolderOperationResult.Success -> getSuccessMessage(event.operation)
+        is FolderOperationResult.InvalidName -> getInvalidNameMessage(result.error)
         FolderOperationResult.AlreadyExists -> getString(R.string.folder_operation_error_already_exists)
         FolderOperationResult.HasSubfolders -> getString(R.string.folder_operation_error_has_subfolders)
         FolderOperationResult.NotAllowed -> getString(R.string.folder_operation_error_not_allowed)
         FolderOperationResult.FolderNotFound -> getString(R.string.folder_operation_error_folder_not_found)
-        is FolderOperationResult.ServerError -> {
-            val serverMessage = result.serverMessage?.trim()?.take(MAX_SERVER_MESSAGE_LENGTH)
-            if (serverMessage.isNullOrEmpty()) {
-                getString(R.string.folder_operation_error_server)
-            } else {
-                getString(R.string.folder_operation_error_server_with_message, serverMessage)
-            }
-        }
+        is FolderOperationResult.ServerError -> getServerErrorMessage(result.serverMessage)
         FolderOperationResult.Failed -> getString(R.string.folder_operation_error_failed)
     }
 
     Toast.makeText(requireContext(), message, Toast.LENGTH_LONG).show()
+}
+
+private fun Fragment.getSuccessMessage(operation: FolderOperation): String {
+    return when (operation) {
+        FolderOperation.CREATE -> getString(R.string.folder_operation_created)
+        FolderOperation.RENAME -> getString(R.string.folder_operation_renamed)
+        FolderOperation.DELETE -> getString(R.string.folder_operation_deleted)
+    }
+}
+
+private fun Fragment.getInvalidNameMessage(error: FolderNameError): String {
+    return when (error) {
+        FolderNameError.EMPTY -> getString(R.string.folder_name_error_empty)
+        FolderNameError.CONTAINS_DELIMITER, FolderNameError.INVALID_CHARACTER -> {
+            getString(R.string.folder_name_error_invalid_character)
+        }
+        FolderNameError.RESERVED_NAME -> getString(R.string.folder_name_error_reserved_name)
+    }
+}
+
+private fun Fragment.getServerErrorMessage(serverMessage: String?): String {
+    val trimmedMessage = serverMessage?.trim()?.take(MAX_SERVER_MESSAGE_LENGTH)
+    return if (trimmedMessage.isNullOrEmpty()) {
+        getString(R.string.folder_operation_error_server)
+    } else {
+        getString(R.string.folder_operation_error_server_with_message, trimmedMessage)
+    }
 }

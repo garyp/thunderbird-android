@@ -3,6 +3,7 @@ package com.fsck.k9.ui.managefolders
 import com.fsck.k9.backend.api.FolderAlreadyExistsException
 import com.fsck.k9.backend.api.FolderOperationException
 import com.fsck.k9.controller.MessagingController
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -46,8 +47,10 @@ class FolderManagementOperations(
     private val messagingController: MessagingController,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
-    fun supportsFolderManagement(account: LegacyAccountDto): Boolean {
-        return messagingController.supportsFolderManagement(account)
+    suspend fun supportsFolderManagement(account: LegacyAccountDto): Boolean {
+        return withContext(ioDispatcher) {
+            messagingController.supportsFolderManagement(account)
+        }
     }
 
     fun canCreateSubfolder(folder: Folder): Boolean = !folder.isLocalOnly
@@ -66,100 +69,103 @@ class FolderManagementOperations(
         account: LegacyAccountDto,
         parentFolderId: Long?,
         name: String,
-    ): FolderOperationResult = withContext(ioDispatcher) {
+    ): FolderOperationResult = performOperation {
         val delimiter = account.folderPathDelimiter
         val parentServerId = if (parentFolderId != null) {
             val parentFolder = findFolder(account, parentFolderId)
-                ?: return@withContext FolderOperationResult.FolderNotFound
-            if (!canCreateSubfolder(parentFolder)) return@withContext FolderOperationResult.NotAllowed
+                ?: return@performOperation FolderOperationResult.FolderNotFound
+            if (!canCreateSubfolder(parentFolder)) return@performOperation FolderOperationResult.NotAllowed
 
             findFolderServerId(account, parentFolderId)
-                ?: return@withContext FolderOperationResult.FolderNotFound
+                ?: return@performOperation FolderOperationResult.FolderNotFound
         } else {
             null
         }
 
         val trimmedName = name.trim()
         FolderNameValidator.validate(trimmedName, delimiter, isTopLevel = parentServerId == null)?.let { error ->
-            return@withContext FolderOperationResult.InvalidName(error)
+            return@performOperation FolderOperationResult.InvalidName(error)
         }
 
         val serverId = FolderServerIdHelper.buildServerId(parentServerId, trimmedName, delimiter)
         if (folderExists(account, serverId)) {
-            return@withContext FolderOperationResult.AlreadyExists
+            return@performOperation FolderOperationResult.AlreadyExists
         }
 
-        performOperation {
-            messagingController.createFolderBlocking(account, serverId)
-        }
+        messagingController.createFolderBlocking(account, serverId)
+        FolderOperationResult.Success
     }
 
     suspend fun renameFolder(
         account: LegacyAccountDto,
         folderId: Long,
         newName: String,
-    ): FolderOperationResult = withContext(ioDispatcher) {
+    ): FolderOperationResult = performOperation {
         val delimiter = account.folderPathDelimiter
         val folder = findFolder(account, folderId)
-            ?: return@withContext FolderOperationResult.FolderNotFound
-        if (!canRename(folder)) return@withContext FolderOperationResult.NotAllowed
+            ?: return@performOperation FolderOperationResult.FolderNotFound
+        if (!canRename(folder)) return@performOperation FolderOperationResult.NotAllowed
 
         val serverId = findFolderServerId(account, folderId)
-            ?: return@withContext FolderOperationResult.FolderNotFound
-        if (serverId.equals(INBOX, ignoreCase = true)) return@withContext FolderOperationResult.NotAllowed
+            ?: return@performOperation FolderOperationResult.FolderNotFound
+        if (serverId.equals(INBOX, ignoreCase = true)) return@performOperation FolderOperationResult.NotAllowed
 
         val parentServerId = FolderServerIdHelper.getParentServerId(serverId, delimiter)
         val trimmedName = newName.trim()
         FolderNameValidator.validate(trimmedName, delimiter, isTopLevel = parentServerId == null)?.let { error ->
-            return@withContext FolderOperationResult.InvalidName(error)
+            return@performOperation FolderOperationResult.InvalidName(error)
         }
 
         val newServerId = FolderServerIdHelper.buildServerId(parentServerId, trimmedName, delimiter)
         if (newServerId == serverId) {
-            return@withContext FolderOperationResult.Success
+            return@performOperation FolderOperationResult.Success
         }
 
         if (folderExists(account, newServerId)) {
-            return@withContext FolderOperationResult.AlreadyExists
+            return@performOperation FolderOperationResult.AlreadyExists
         }
 
-        performOperation {
-            messagingController.renameFolderBlocking(account, serverId, newServerId)
-        }
+        messagingController.renameFolderBlocking(account, serverId, newServerId)
+        FolderOperationResult.Success
     }
 
     suspend fun deleteFolder(
         account: LegacyAccountDto,
         folderId: Long,
-    ): FolderOperationResult = withContext(ioDispatcher) {
+    ): FolderOperationResult = performOperation {
         val folder = findFolder(account, folderId)
-            ?: return@withContext FolderOperationResult.FolderNotFound
-        if (!canDelete(folder)) return@withContext FolderOperationResult.NotAllowed
+            ?: return@performOperation FolderOperationResult.FolderNotFound
+        if (!canDelete(folder)) return@performOperation FolderOperationResult.NotAllowed
 
         val serverId = findFolderServerId(account, folderId)
-            ?: return@withContext FolderOperationResult.FolderNotFound
+            ?: return@performOperation FolderOperationResult.FolderNotFound
 
         val hasSubfolders = getRemoteFolders(account).any { remoteFolder ->
             FolderServerIdHelper.isSubfolder(remoteFolder.serverId, serverId, account.folderPathDelimiter)
         }
         if (hasSubfolders) {
-            return@withContext FolderOperationResult.HasSubfolders
+            return@performOperation FolderOperationResult.HasSubfolders
         }
 
-        performOperation {
-            messagingController.deleteFolderBlocking(account, serverId)
-        }
+        messagingController.deleteFolderBlocking(account, serverId)
+        FolderOperationResult.Success
     }
 
     private suspend fun folderExists(account: LegacyAccountDto, serverId: String): Boolean {
         return getRemoteFolders(account).any { it.serverId == serverId }
     }
 
+    /**
+     * Runs [block] on the I/O dispatcher and maps exceptions to [FolderOperationResult]s.
+     */
     @Suppress("TooGenericExceptionCaught")
-    private fun performOperation(block: () -> Unit): FolderOperationResult {
-        return try {
+    private suspend fun performOperation(
+        block: suspend () -> FolderOperationResult,
+    ): FolderOperationResult = withContext(ioDispatcher) {
+        try {
             block()
-            FolderOperationResult.Success
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: FolderAlreadyExistsException) {
             Log.w(e, "Folder operation failed: folder already exists")
             FolderOperationResult.AlreadyExists

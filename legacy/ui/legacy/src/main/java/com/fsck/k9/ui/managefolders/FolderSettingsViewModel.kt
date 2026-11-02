@@ -21,6 +21,7 @@ import net.thunderbird.legacy.logging.Log
 
 private const val NO_FOLDER_ID = 0L
 
+@Suppress("TooManyFunctions")
 class FolderSettingsViewModel(
     private val preferences: Preferences,
     private val folderDetailsRepository: FolderDetailsRepository,
@@ -151,15 +152,16 @@ class FolderSettingsViewModel(
         viewModelScope.launch {
             val result = block()
 
-            if (operation == FolderOperation.RENAME && result == FolderOperationResult.Success) {
-                folderDetailsRepository.loadFolderDetails(account, folderId)?.let { folderDetails ->
-                    folder = folderDetails.folder
-                    sendActionEvent(Action.UpdateFolder(folderDetails.folder))
-                }
+            val updatedFolder = if (operation == FolderOperation.RENAME && result == FolderOperationResult.Success) {
+                folderDetailsRepository.loadFolderDetails(account, folderId)?.folder?.also { folder = it }
+            } else {
+                null
             }
 
             operationInProgressLiveData.value = false
-            sendActionEvent(Action.ShowFolderOperationResult(FolderOperationEvent(operation, result)))
+            sendActionEvent(
+                Action.ShowFolderOperationResult(FolderOperationEvent(operation, result), updatedFolder),
+            )
         }
     }
 
@@ -185,6 +187,8 @@ sealed class Action {
         val isTopLevel: Boolean,
     ) : Action()
     object ShowDeleteFolderConfirmationDialog : Action()
-    data class ShowFolderOperationResult(val event: FolderOperationEvent) : Action()
-    data class UpdateFolder(val folder: Folder) : Action()
+    data class ShowFolderOperationResult(
+        val event: FolderOperationEvent,
+        val updatedFolder: Folder?,
+    ) : Action()
 }
