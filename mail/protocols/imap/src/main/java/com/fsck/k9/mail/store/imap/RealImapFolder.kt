@@ -72,29 +72,32 @@ internal class RealImapFolder(
 
     @get:Throws(MessagingException::class)
     private val prefixedName: String
-        get() {
-            val imapPrefix = if (!INBOX.equals(serverId, ignoreCase = true)) {
-                val connection = synchronized(this) {
-                    this.connection ?: connectionManager.getConnection()
-                }
+        get() = getPrefixedName(serverId)
 
-                try {
-                    connection.open()
-                } catch (ioe: IOException) {
-                    throw MessagingException("Unable to get IMAP prefix", ioe)
-                } finally {
-                    if (this.connection == null) {
-                        connectionManager.releaseConnection(connection)
-                    }
-                }
-                internalImapStore.combinedPrefix.orEmpty()
-            } else {
-                ""
+    @Throws(MessagingException::class)
+    private fun getPrefixedName(serverId: String): String {
+        val imapPrefix = if (!INBOX.equals(serverId, ignoreCase = true)) {
+            val connection = synchronized(this) {
+                this.connection ?: connectionManager.getConnection()
             }
-            val normalizedServerId = serverId.removePrefix(imapPrefix)
 
-            return "$imapPrefix$normalizedServerId"
+            try {
+                connection.open()
+            } catch (ioe: IOException) {
+                throw MessagingException("Unable to get IMAP prefix", ioe)
+            } finally {
+                if (this.connection == null) {
+                    connectionManager.releaseConnection(connection)
+                }
+            }
+            internalImapStore.combinedPrefix.orEmpty()
+        } else {
+            ""
         }
+        val normalizedServerId = serverId.removePrefix(imapPrefix)
+
+        return "$imapPrefix$normalizedServerId"
+    }
 
     @get:Throws(MessagingException::class)
     private val encodedName: String
