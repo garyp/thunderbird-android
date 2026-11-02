@@ -55,6 +55,10 @@ internal class CommandManageFolder(
 
     @Throws(MessagingException::class)
     fun renameFolder(folderServerId: String, newFolderServerId: String, folderPathDelimiter: FolderPathDelimiter) {
+        // The server renames all subfolders along with the folder.
+        val renamedFolders = buildRenameMapping(folderServerId, newFolderServerId, folderPathDelimiter)
+        val subscribedFolders = renamedFolders.keys.filter { isSubscribedQuietly(it) }
+
         val folder = imapStore.getFolder(folderServerId)
         val newFolder = imapStore.getFolder(newFolderServerId)
         try {
@@ -71,17 +75,22 @@ internal class CommandManageFolder(
             newFolder.close()
         }
 
-        // The server renames all subfolders along with the folder. Mirror that locally, so locally stored messages
-        // and folder settings are retained.
-        val renamedFolders = buildRenameMapping(folderServerId, newFolderServerId, folderPathDelimiter)
+        // Mirror the rename locally, so locally stored messages and folder settings are retained.
         backendStorage.updateFolders {
+            // Remove stale local folders that are in the way, e.g. ones deleted on the server by another client
+            val localFolderServerIds = backendStorage.getFolderServerIds().toSet()
+            val staleFolderServerIds = renamedFolders.values.filter { serverId ->
+                serverId in localFolderServerIds && serverId !in renamedFolders
+            }
+            deleteFolders(staleFolderServerIds)
+
             for ((oldServerId, newServerId) in renamedFolders) {
                 renameFolder(folderServerId = oldServerId, newFolderServerId = newServerId, name = newServerId)
             }
         }
 
-        for ((oldServerId, newServerId) in renamedFolders) {
-            moveSubscriptionQuietly(oldServerId, newServerId)
+        for (oldServerId in subscribedFolders) {
+            moveSubscriptionQuietly(oldServerId, newFolderServerId = renamedFolders.getValue(oldServerId))
         }
     }
 
@@ -138,13 +147,27 @@ internal class CommandManageFolder(
         }
     }
 
-    private fun unsubscribeQuietly(folderServerId: String): Boolean {
+    private fun unsubscribeQuietly(folderServerId: String) {
         val folder = imapStore.getFolder(folderServerId)
-        return try {
+        try {
             folder.unsubscribe()
-            true
         } catch (e: MessagingException) {
             logger.verbose(TAG, e) { "Failed to unsubscribe from folder" }
+        } finally {
+            folder.close()
+        }
+    }
+
+    /**
+     * Must be called before the folder is renamed on the server, because servers keep subscriptions of names that
+     * don't exist (anymore).
+     */
+    private fun isSubscribedQuietly(folderServerId: String): Boolean {
+        val folder = imapStore.getFolder(folderServerId)
+        return try {
+            folder.isSubscribed()
+        } catch (e: MessagingException) {
+            logger.verbose(TAG, e) { "Failed to check folder subscription" }
             false
         } finally {
             folder.close()
@@ -152,12 +175,11 @@ internal class CommandManageFolder(
     }
 
     /**
-     * Only subscribes to the new name if the old name was subscribed. Servers that already moved the subscription
-     * (or don't track it) will reject the `UNSUBSCRIBE` command, and we leave the subscription list alone.
+     * Moves the subscription of a folder that was subscribed before it was renamed. If the server already moved the
+     * subscription itself, both commands are harmless.
      */
     private fun moveSubscriptionQuietly(oldFolderServerId: String, newFolderServerId: String) {
-        if (unsubscribeQuietly(oldFolderServerId)) {
-            subscribeQuietly(newFolderServerId)
-        }
+        unsubscribeQuietly(oldFolderServerId)
+        subscribeQuietly(newFolderServerId)
     }
 }

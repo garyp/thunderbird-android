@@ -153,6 +153,16 @@ interface ImapFolder {
      */
     @Throws(MessagingException::class)
     fun unsubscribe()
+
+    /**
+     * Checks whether this folder is in the server's set of subscribed folders using the `LSUB` command (RFC 3501,
+     * section 6.3.9).
+     *
+     * @throws ImapFolderOperationException if the server rejected the command.
+     * @throws MessagingException in case of a network error.
+     */
+    @Throws(MessagingException::class)
+    fun isSubscribed(): Boolean
 }
 
 interface FetchListener {

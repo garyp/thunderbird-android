@@ -415,6 +415,33 @@ class RealImapFolderTest {
     }
 
     @Test
+    fun `isSubscribed() with LSUB response should return true`() {
+        val testSubject = createFolder("Folder")
+        whenever(imapConnection.executeSimpleCommand("LSUB \"\" \"Folder\"")).thenReturn(
+            createImapResponseList(
+                "* LSUB () \"/\" \"Folder\"",
+                "x OK LSUB completed",
+            ),
+        )
+
+        val result = testSubject.isSubscribed()
+
+        assertThat(result).isTrue()
+    }
+
+    @Test
+    fun `isSubscribed() without LSUB response should return false`() {
+        val testSubject = createFolder("Folder")
+        whenever(imapConnection.executeSimpleCommand("LSUB \"\" \"Folder\"")).thenReturn(
+            createImapResponseList("x OK LSUB completed"),
+        )
+
+        val result = testSubject.isSubscribed()
+
+        assertThat(result).isFalse()
+    }
+
+    @Test
     fun `unsubscribe() with negative response should throw ImapFolderOperationException`() {
         val testSubject = createFolder("Folder")
         doThrow(

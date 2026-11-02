@@ -93,6 +93,18 @@ class CommandManageFolderTest {
     }
 
     @Test
+    fun `renameFolder() should replace stale local folder with the new name`() {
+        createFolders("Old")
+        backendStorage.updateFolders {
+            createFolder(FolderInfo(serverId = "New", name = "New", type = FolderType.REGULAR))
+        }
+
+        testSubject.renameFolder(folderServerId = "Old", newFolderServerId = "New", folderPathDelimiter = "/")
+
+        assertThat(backendStorage.getFolderServerIds()).containsExactlyInAnyOrder("New")
+    }
+
+    @Test
     fun `renameFolder() should keep local folder settings`() {
         createFolders("Old")
         backendStorage.getFolder("Old").type = FolderType.TRASH
@@ -231,9 +243,11 @@ private class FakeImapServer : ImapStore {
         }
 
         override fun unsubscribe() {
-            if (refuseSubscriptionChanges || !subscriptions.remove(serverId)) {
-                throw ImapFolderOperationException("UNSUBSCRIBE command failed", null)
-            }
+            // Like many servers, return OK even when the name isn't subscribed
+            if (refuseSubscriptionChanges) throw ImapFolderOperationException("UNSUBSCRIBE command failed", null)
+            subscriptions -= serverId
         }
+
+        override fun isSubscribed(): Boolean = serverId in subscriptions
     }
 }

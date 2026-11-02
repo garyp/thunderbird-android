@@ -339,6 +339,16 @@ internal class RealImapFolder(
     }
 
     @Throws(MessagingException::class)
+    override fun isSubscribed(): Boolean {
+        // https://www.rfc-editor.org/rfc/rfc3501.html#section-6.3.9
+        val responses = executeMailboxCommand(commandName = "LSUB") {
+            "LSUB \"\" ${getQuotedMailboxName(serverId)}"
+        }
+
+        return ListResponse.parseLsub(responses).isNotEmpty()
+    }
+
+    @Throws(MessagingException::class)
     private fun getQuotedMailboxName(serverId: String): String {
         return ImapUtility.encodeString(folderNameCodec.encode(getPrefixedName(serverId)))
     }
@@ -349,12 +359,12 @@ internal class RealImapFolder(
      * A tagged `NO` or `BAD` response is translated to [ImapFolderOperationException].
      */
     @Throws(MessagingException::class)
-    private fun executeMailboxCommand(commandName: String, buildCommand: () -> String) {
+    private fun executeMailboxCommand(commandName: String, buildCommand: () -> String): List<ImapResponse> {
         val connection = synchronized(this) {
             this.connection ?: connectionManager.getConnection()
         }
 
-        try {
+        return try {
             connection.executeSimpleCommand(buildCommand())
         } catch (e: NegativeImapResponseException) {
             throw ImapFolderOperationException(

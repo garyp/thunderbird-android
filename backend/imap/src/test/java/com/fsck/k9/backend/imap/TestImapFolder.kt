@@ -208,4 +208,8 @@ open class TestImapFolder(override val serverId: String) : ImapFolder {
     override fun unsubscribe() {
         throw UnsupportedOperationException("not implemented")
     }
+
+    override fun isSubscribed(): Boolean {
+        throw UnsupportedOperationException("not implemented")
+    }
 }
