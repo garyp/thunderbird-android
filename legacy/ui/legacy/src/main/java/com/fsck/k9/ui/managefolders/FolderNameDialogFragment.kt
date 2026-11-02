@@ -124,15 +124,32 @@ class FolderNameDialogFragment : DialogFragment() {
             initialName: String? = null,
         ) {
             FolderNameDialogFragment().apply {
-                arguments = bundleOf(
-                    ARG_REQUEST_KEY to requestKey,
-                    ARG_TITLE to title,
-                    ARG_CONFIRM_TEXT to confirmText,
-                    ARG_INITIAL_NAME to initialName,
-                    ARG_FOLDER_PATH_DELIMITER to folderPathDelimiter,
-                    ARG_IS_TOP_LEVEL to isTopLevel,
+                arguments = createArguments(
+                    requestKey,
+                    title,
+                    confirmText,
+                    folderPathDelimiter,
+                    isTopLevel,
+                    initialName,
                 )
             }.show(fragmentManager, requestKey)
         }
+
+        @Suppress("LongParameterList")
+        internal fun createArguments(
+            requestKey: String,
+            title: String,
+            confirmText: String,
+            folderPathDelimiter: String,
+            isTopLevel: Boolean,
+            initialName: String?,
+        ): Bundle = bundleOf(
+            ARG_REQUEST_KEY to requestKey,
+            ARG_TITLE to title,
+            ARG_CONFIRM_TEXT to confirmText,
+            ARG_INITIAL_NAME to initialName,
+            ARG_FOLDER_PATH_DELIMITER to folderPathDelimiter,
+            ARG_IS_TOP_LEVEL to isTopLevel,
+        )
     }
 }
