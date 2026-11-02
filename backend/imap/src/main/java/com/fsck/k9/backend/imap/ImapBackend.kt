@@ -43,6 +43,7 @@ class ImapBackend(
     private val commandFetchMessage = CommandFetchMessage(imapStore)
     private val commandFindByMessageId = CommandFindByMessageId(imapStore)
     private val commandUploadMessage = CommandUploadMessage(imapStore)
+    private val commandManageFolder = CommandManageFolder(backendStorage, imapStore)
 
     override val supportsFlags = true
     override val supportsExpunge = true
@@ -52,10 +53,27 @@ class ImapBackend(
     override val supportsTrashFolder = true
     override val supportsSearchByDate = true
     override val supportsFolderSubscriptions = true
+    override val supportsFolderManagement = true
     override val isPushCapable = true
 
     override fun refreshFolderList(): FolderPathDelimiter? {
         return commandRefreshFolderList.refreshFolderList()
+    }
+
+    override fun createFolder(folderServerId: String) {
+        commandManageFolder.createFolder(folderServerId)
+    }
+
+    override fun renameFolder(
+        folderServerId: String,
+        newFolderServerId: String,
+        folderPathDelimiter: FolderPathDelimiter,
+    ) {
+        commandManageFolder.renameFolder(folderServerId, newFolderServerId, folderPathDelimiter)
+    }
+
+    override fun deleteFolder(folderServerId: String) {
+        commandManageFolder.deleteFolder(folderServerId)
     }
 
     override fun sync(folderServerId: String, syncConfig: SyncConfig, listener: SyncListener) =

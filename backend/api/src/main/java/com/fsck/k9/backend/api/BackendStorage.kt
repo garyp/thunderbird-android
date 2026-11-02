@@ -24,6 +24,12 @@ interface BackendFolderUpdater : Closeable {
 
     @Throws(MessagingException::class)
     fun changeFolder(folderServerId: String, name: String, type: FolderType)
+
+    /**
+     * Changes the server ID and name of an existing folder, keeping its messages and settings.
+     */
+    @Throws(MessagingException::class)
+    fun renameFolder(folderServerId: String, newFolderServerId: String, name: String)
 }
 
 fun BackendFolderUpdater.createFolder(folder: FolderInfo): Long? = createFolders(listOf(folder)).firstOrNull()

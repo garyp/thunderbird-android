@@ -27,6 +27,7 @@ import android.os.SystemClock;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.VisibleForTesting;
+import androidx.annotation.WorkerThread;
 import app.k9mail.legacy.di.DI;
 import app.k9mail.legacy.mailstore.FolderDetailsAccessor;
 import app.k9mail.legacy.mailstore.MessageStore;
@@ -1783,6 +1784,47 @@ public class MessagingController implements MessagingControllerRegistry, Messagi
 
     public boolean supportsFolderSubscriptions(LegacyAccountDto account) {
         return getBackend(account).getSupportsFolderSubscriptions();
+    }
+
+    public boolean supportsFolderManagement(LegacyAccountDto account) {
+        return getBackend(account).getSupportsFolderManagement();
+    }
+
+    /**
+     * Creates a folder on the server and adds it to the local folder list.
+     * <p>
+     * This performs network I/O and must not be called on the main thread.
+     *
+     * @see Backend#createFolder(String)
+     */
+    @WorkerThread
+    public void createFolderBlocking(LegacyAccountDto account, String folderServerId) throws MessagingException {
+        getBackend(account).createFolder(folderServerId);
+    }
+
+    /**
+     * Renames a folder (and its subfolders) on the server and updates the local folder list accordingly.
+     * <p>
+     * This performs network I/O and must not be called on the main thread.
+     *
+     * @see Backend#renameFolder(String, String, String)
+     */
+    @WorkerThread
+    public void renameFolderBlocking(LegacyAccountDto account, String folderServerId, String newFolderServerId)
+        throws MessagingException {
+        getBackend(account).renameFolder(folderServerId, newFolderServerId, account.folderPathDelimiter());
+    }
+
+    /**
+     * Deletes a folder on the server and removes it, including locally stored messages, from the local folder list.
+     * <p>
+     * This performs network I/O and must not be called on the main thread.
+     *
+     * @see Backend#deleteFolder(String)
+     */
+    @WorkerThread
+    public void deleteFolderBlocking(LegacyAccountDto account, String folderServerId) throws MessagingException {
+        getBackend(account).deleteFolder(folderServerId);
     }
 
     public void moveMessages(LegacyAccountDto srcAccount, long srcFolderId,
