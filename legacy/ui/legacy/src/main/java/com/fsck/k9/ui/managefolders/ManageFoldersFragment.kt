@@ -64,12 +64,19 @@ class ManageFoldersFragment : Fragment() {
                 override fun onPrepareMenu(menu: Menu) {
                     val folderMenuItem = menu.findItem(R.id.filter_folders)
                     folderMenuItem.isVisible = !folderMenuItem.isActionViewExpanded
+
+                    menu.findItem(R.id.create_folder).isVisible = !folderMenuItem.isActionViewExpanded &&
+                        viewModel.supportsFolderManagement(account)
                 }
 
                 override fun onMenuItemSelected(menuItem: MenuItem): Boolean {
                     return when (menuItem.itemId) {
                         R.id.list_folders -> {
                             refreshFolderList()
+                            true
+                        }
+                        R.id.create_folder -> {
+                            showCreateFolderDialog()
                             true
                         }
                         else -> false
@@ -85,6 +92,32 @@ class ManageFoldersFragment : Fragment() {
         viewModel.getFolders(account).observeNotNull(this) { folders ->
             updateFolderList(folders)
         }
+
+        childFragmentManager.setFragmentResultListener(REQUEST_CREATE_FOLDER, viewLifecycleOwner) { _, result ->
+            val folderName = result.getString(FolderNameDialogFragment.RESULT_FOLDER_NAME)
+            if (folderName != null) {
+                viewModel.createFolder(account, folderName)
+            }
+        }
+
+        viewModel.getOperationInProgress().observeNotNull(viewLifecycleOwner) { inProgress ->
+            setFolderOperationProgressVisible(inProgress)
+        }
+
+        viewModel.getOperationEvents().observeNotNull(viewLifecycleOwner) { event ->
+            showFolderOperationResult(event)
+        }
+    }
+
+    private fun showCreateFolderDialog() {
+        FolderNameDialogFragment.show(
+            fragmentManager = childFragmentManager,
+            requestKey = REQUEST_CREATE_FOLDER,
+            title = getString(R.string.create_folder_dialog_title),
+            confirmText = getString(R.string.create_folder_dialog_confirm_action),
+            folderPathDelimiter = account.folderPathDelimiter,
+            isTopLevel = true,
+        )
     }
 
     private fun initializeFolderList() {
@@ -170,5 +203,7 @@ class ManageFoldersFragment : Fragment() {
 
     companion object {
         const val EXTRA_ACCOUNT = "account"
+
+        private const val REQUEST_CREATE_FOLDER = "create_folder"
     }
 }

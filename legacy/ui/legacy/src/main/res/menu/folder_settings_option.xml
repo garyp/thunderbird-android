@@ -5,6 +5,27 @@
     >
 
     <item
+        android:id="@+id/create_subfolder"
+        android:title="@string/folder_settings_create_subfolder_action"
+        android:visible="false"
+        app:showAsAction="never"
+        />
+
+    <item
+        android:id="@+id/rename_folder"
+        android:title="@string/folder_settings_rename_folder_action"
+        android:visible="false"
+        app:showAsAction="never"
+        />
+
+    <item
+        android:id="@+id/delete_folder"
+        android:title="@string/folder_settings_delete_folder_action"
+        android:visible="false"
+        app:showAsAction="never"
+        />
+
+    <item
         android:id="@+id/clear_local_folder"
         android:title="@string/folder_settings_clear_local_folder_action"
         app:showAsAction="never"
