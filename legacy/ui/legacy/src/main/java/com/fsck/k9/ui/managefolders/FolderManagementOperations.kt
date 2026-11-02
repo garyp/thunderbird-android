@@ -71,15 +71,14 @@ class FolderManagementOperations(
         name: String,
     ): FolderOperationResult = performOperation {
         val delimiter = account.folderPathDelimiter
-        val parentServerId = if (parentFolderId != null) {
+        var parentServerId: String? = null
+        if (parentFolderId != null) {
             val parentFolder = findFolder(account, parentFolderId)
                 ?: return@performOperation FolderOperationResult.FolderNotFound
             if (!canCreateSubfolder(parentFolder)) return@performOperation FolderOperationResult.NotAllowed
 
-            findFolderServerId(account, parentFolderId)
+            parentServerId = findFolderServerId(account, parentFolderId)
                 ?: return@performOperation FolderOperationResult.FolderNotFound
-        } else {
-            null
         }
 
         val trimmedName = name.trim()
