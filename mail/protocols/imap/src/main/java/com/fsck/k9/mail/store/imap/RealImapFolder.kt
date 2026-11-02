@@ -287,6 +287,90 @@ internal class RealImapFolder(
         }
     }
 
+    @Throws(MessagingException::class)
+    override fun delete() {
+        if (INBOX.equals(serverId, ignoreCase = true)) {
+            throw ImapFolderOperationException("INBOX can't be deleted", responseText = null)
+        }
+
+        // Don't keep the folder selected while deleting it
+        close()
+
+        // https://www.rfc-editor.org/rfc/rfc9051.html#section-6.3.5
+        executeMailboxCommand(commandName = "DELETE") {
+            "DELETE ${getQuotedMailboxName(serverId)}"
+        }
+
+        exists = false
+    }
+
+    @Throws(MessagingException::class)
+    override fun rename(newServerId: String) {
+        // Renaming INBOX has special semantics: it moves all messages to a new folder and leaves INBOX empty.
+        // See https://www.rfc-editor.org/rfc/rfc9051.html#section-6.3.6
+        if (INBOX.equals(serverId, ignoreCase = true) || INBOX.equals(newServerId, ignoreCase = true)) {
+            throw ImapFolderOperationException("Renaming INBOX is not supported", responseText = null)
+        }
+
+        // Don't keep the folder selected while renaming it
+        close()
+
+        executeMailboxCommand(commandName = "RENAME") {
+            "RENAME ${getQuotedMailboxName(serverId)} ${getQuotedMailboxName(newServerId)}"
+        }
+
+        exists = false
+    }
+
+    @Throws(MessagingException::class)
+    override fun subscribe() {
+        // https://www.rfc-editor.org/rfc/rfc9051.html#section-6.3.7
+        executeMailboxCommand(commandName = "SUBSCRIBE") {
+            "SUBSCRIBE ${getQuotedMailboxName(serverId)}"
+        }
+    }
+
+    @Throws(MessagingException::class)
+    override fun unsubscribe() {
+        // https://www.rfc-editor.org/rfc/rfc9051.html#section-6.3.8
+        executeMailboxCommand(commandName = "UNSUBSCRIBE") {
+            "UNSUBSCRIBE ${getQuotedMailboxName(serverId)}"
+        }
+    }
+
+    @Throws(MessagingException::class)
+    private fun getQuotedMailboxName(serverId: String): String {
+        return ImapUtility.encodeString(folderNameCodec.encode(getPrefixedName(serverId)))
+    }
+
+    /**
+     * Executes a command that doesn't require this folder to be selected, e.g. `DELETE` or `RENAME`.
+     *
+     * A tagged `NO` or `BAD` response is translated to [ImapFolderOperationException].
+     */
+    @Throws(MessagingException::class)
+    private fun executeMailboxCommand(commandName: String, buildCommand: () -> String) {
+        val connection = synchronized(this) {
+            this.connection ?: connectionManager.getConnection()
+        }
+
+        try {
+            connection.executeSimpleCommand(buildCommand())
+        } catch (e: NegativeImapResponseException) {
+            throw ImapFolderOperationException(
+                message = "$commandName command failed",
+                responseText = e.responseText,
+                cause = e,
+            )
+        } catch (ioe: IOException) {
+            throw ioExceptionHandler(connection, ioe)
+        } finally {
+            if (this.connection == null) {
+                connectionManager.releaseConnection(connection)
+            }
+        }
+    }
+
     /**
      * Copies the given messages to the specified folder.
      *

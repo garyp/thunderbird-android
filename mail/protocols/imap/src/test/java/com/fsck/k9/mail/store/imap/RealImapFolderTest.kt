@@ -276,6 +276,160 @@ class RealImapFolderTest {
     }
 
     @Test
+    fun `delete() should issue DELETE command`() {
+        val testSubject = createFolder("Folder")
+
+        testSubject.delete()
+
+        verify(imapConnection).executeSimpleCommand("DELETE \"Folder\"")
+    }
+
+    @Test
+    fun `delete() should add IMAP prefix to folder name`() {
+        val imapStore = FakeInternalImapStore(config = imapStoreConfig, imapPrefix = "INBOX", pathDelimiter = ".")
+        val testSubject = createFolder(folderName = "Parent.Child", internalImapStore = imapStore)
+
+        testSubject.delete()
+
+        verify(imapConnection).executeSimpleCommand("DELETE \"INBOX.Parent.Child\"")
+    }
+
+    @Test
+    fun `delete() with negative response should throw ImapFolderOperationException containing response text`() {
+        val testSubject = createFolder("Folder")
+        doThrow(
+            NegativeImapResponseException(
+                message = "Command failed",
+                responses = createImapResponseList("x NO [HASCHILDREN] Mailbox has children"),
+            ),
+        ).whenever(imapConnection).executeSimpleCommand("DELETE \"Folder\"")
+
+        assertFailure {
+            testSubject.delete()
+        }.isInstanceOf<ImapFolderOperationException>()
+            .transform { it.responseText }.isEqualTo("Mailbox has children")
+    }
+
+    @Test
+    fun `delete() should refuse to delete INBOX`() {
+        val testSubject = createFolder("INBOX")
+
+        assertFailure {
+            testSubject.delete()
+        }.isInstanceOf<ImapFolderOperationException>()
+
+        verify(imapConnection, never()).executeSimpleCommand(anyString())
+    }
+
+    @Test
+    fun `rename() should issue RENAME command`() {
+        val testSubject = createFolder("Old")
+
+        testSubject.rename("Parent/New")
+
+        verify(imapConnection).executeSimpleCommand("RENAME \"Old\" \"Parent/New\"")
+    }
+
+    @Test
+    fun `rename() should add IMAP prefix to both folder names`() {
+        val imapStore = FakeInternalImapStore(config = imapStoreConfig, imapPrefix = "INBOX", pathDelimiter = ".")
+        val testSubject = createFolder(folderName = "Old", internalImapStore = imapStore)
+
+        testSubject.rename("New")
+
+        verify(imapConnection).executeSimpleCommand("RENAME \"INBOX.Old\" \"INBOX.New\"")
+    }
+
+    @Test
+    fun `rename() should encode folder names using modified UTF-7`() {
+        val testSubject = createFolder("Drafts")
+
+        testSubject.rename("Entwürfe")
+
+        verify(imapConnection).executeSimpleCommand("RENAME \"Drafts\" \"Entw&APw-rfe\"")
+    }
+
+    @Test
+    fun `rename() should escape quotes and backslashes`() {
+        val testSubject = createFolder("Old")
+
+        testSubject.rename("a \"quoted\" \\ name")
+
+        verify(imapConnection).executeSimpleCommand("RENAME \"Old\" \"a \\\"quoted\\\" \\\\ name\"")
+    }
+
+    @Test
+    fun `rename() with negative response should throw ImapFolderOperationException`() {
+        val testSubject = createFolder("Old")
+        doThrow(
+            NegativeImapResponseException(
+                message = "Command failed",
+                responses = createImapResponseList("x NO [ALREADYEXISTS] Mailbox already exists"),
+            ),
+        ).whenever(imapConnection).executeSimpleCommand("RENAME \"Old\" \"New\"")
+
+        assertFailure {
+            testSubject.rename("New")
+        }.isInstanceOf<ImapFolderOperationException>()
+            .transform { it.responseText }.isEqualTo("Mailbox already exists")
+    }
+
+    @Test
+    fun `rename() should refuse to rename INBOX`() {
+        val testSubject = createFolder("INBOX")
+
+        assertFailure {
+            testSubject.rename("Old Inbox")
+        }.isInstanceOf<ImapFolderOperationException>()
+
+        verify(imapConnection, never()).executeSimpleCommand(anyString())
+    }
+
+    @Test
+    fun `rename() should refuse to use INBOX as new name`() {
+        val testSubject = createFolder("Folder")
+
+        assertFailure {
+            testSubject.rename("inbox")
+        }.isInstanceOf<ImapFolderOperationException>()
+
+        verify(imapConnection, never()).executeSimpleCommand(anyString())
+    }
+
+    @Test
+    fun `subscribe() should issue SUBSCRIBE command`() {
+        val testSubject = createFolder("Folder")
+
+        testSubject.subscribe()
+
+        verify(imapConnection).executeSimpleCommand("SUBSCRIBE \"Folder\"")
+    }
+
+    @Test
+    fun `unsubscribe() should issue UNSUBSCRIBE command`() {
+        val testSubject = createFolder("Folder")
+
+        testSubject.unsubscribe()
+
+        verify(imapConnection).executeSimpleCommand("UNSUBSCRIBE \"Folder\"")
+    }
+
+    @Test
+    fun `unsubscribe() with negative response should throw ImapFolderOperationException`() {
+        val testSubject = createFolder("Folder")
+        doThrow(
+            NegativeImapResponseException(
+                message = "Command failed",
+                responses = createImapResponseList("x NO Not subscribed"),
+            ),
+        ).whenever(imapConnection).executeSimpleCommand("UNSUBSCRIBE \"Folder\"")
+
+        assertFailure {
+            testSubject.unsubscribe()
+        }.isInstanceOf<ImapFolderOperationException>()
+    }
+
+    @Test
     fun copyMessages_withEmptyMessageList_shouldReturnNull() {
         val sourceFolder = createFolder("Source")
         val destinationFolder = createFolder("Destination")

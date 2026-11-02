@@ -101,6 +101,58 @@ interface ImapFolder {
      */
     @Throws(MessagingException::class)
     fun create(folderType: FolderType = FolderType.REGULAR): Boolean
+
+    /**
+     * Permanently deletes this folder on the IMAP server using the `DELETE` command (RFC 3501, section 6.3.4;
+     * RFC 9051, section 6.3.5).
+     *
+     * The server will refuse to delete `INBOX`. Depending on the server, deleting a folder that has subfolders either
+     * fails or leaves the folder in place with the `\Noselect` attribute. Callers should make sure the folder has no
+     * subfolders before calling this method.
+     *
+     * @throws ImapFolderOperationException if the server rejected the command.
+     * @throws MessagingException in case of a network error.
+     */
+    @Throws(MessagingException::class)
+    fun delete()
+
+    /**
+     * Renames this folder on the IMAP server using the `RENAME` command (RFC 3501, section 6.3.5; RFC 9051,
+     * section 6.3.6).
+     *
+     * All subfolders are renamed by the server as well. Renaming `INBOX` is not supported, because it has special
+     * semantics (it moves all messages to a new folder instead of renaming `INBOX`).
+     *
+     * This [ImapFolder] instance keeps referring to the old [serverId]. Use [ImapStore.getFolder] to get an instance
+     * for the renamed folder.
+     *
+     * @param newServerId The new server ID (full hierarchical name, without the namespace prefix).
+     *
+     * @throws ImapFolderOperationException if the server rejected the command.
+     * @throws MessagingException in case of a network error.
+     */
+    @Throws(MessagingException::class)
+    fun rename(newServerId: String)
+
+    /**
+     * Adds this folder to the server's set of subscribed folders using the `SUBSCRIBE` command (RFC 3501,
+     * section 6.3.6; RFC 9051, section 6.3.7).
+     *
+     * @throws ImapFolderOperationException if the server rejected the command.
+     * @throws MessagingException in case of a network error.
+     */
+    @Throws(MessagingException::class)
+    fun subscribe()
+
+    /**
+     * Removes this folder from the server's set of subscribed folders using the `UNSUBSCRIBE` command (RFC 3501,
+     * section 6.3.7; RFC 9051, section 6.3.8).
+     *
+     * @throws ImapFolderOperationException if the server rejected the command.
+     * @throws MessagingException in case of a network error.
+     */
+    @Throws(MessagingException::class)
+    fun unsubscribe()
 }
 
 interface FetchListener {

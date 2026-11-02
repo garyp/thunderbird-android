@@ -133,6 +133,22 @@ internal open class TestImapFolder(
         throw UnsupportedOperationException("not implemented")
     }
 
+    override fun delete() {
+        throw UnsupportedOperationException("not implemented")
+    }
+
+    override fun rename(newServerId: String) {
+        throw UnsupportedOperationException("not implemented")
+    }
+
+    override fun subscribe() {
+        throw UnsupportedOperationException("not implemented")
+    }
+
+    override fun unsubscribe() {
+        throw UnsupportedOperationException("not implemented")
+    }
+
     fun throwOnOpen(block: () -> Nothing) {
         openAction = block
     }
