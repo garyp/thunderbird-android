@@ -11,8 +11,8 @@ import net.thunderbird.components.core.outcome.Outcome
 import net.thunderbird.components.core.outcome.fold
 import net.thunderbird.core.android.account.LegacyAccountDto
 import net.thunderbird.core.common.exception.MessagingException
+import net.thunderbird.feature.mail.folder.FolderType
 import net.thunderbird.feature.mail.folder.api.Folder
-import net.thunderbird.feature.mail.folder.api.FolderType
 import net.thunderbird.feature.mail.folder.api.RemoteFolder
 import net.thunderbird.feature.mail.folder.api.data.FolderError
 import net.thunderbird.feature.mail.folder.api.data.repository.FolderQueryRepository
@@ -61,7 +61,7 @@ class FolderManagementOperations(
 
     suspend fun getFolderServerId(account: LegacyAccountDto, folderId: Long): String? {
         return withContext(ioDispatcher) {
-            findFolderServerId(account, folderId)
+            folderQueryRepository.findFolderServerId(account, folderId)
         }
     }
 
@@ -73,11 +73,11 @@ class FolderManagementOperations(
         val delimiter = account.folderPathDelimiter
         var parentServerId: String? = null
         if (parentFolderId != null) {
-            val parentFolder = findFolder(account, parentFolderId)
+            val parentFolder = folderQueryRepository.findFolder(account, parentFolderId)
                 ?: return@performOperation FolderOperationResult.FolderNotFound
             if (!canCreateSubfolder(parentFolder)) return@performOperation FolderOperationResult.NotAllowed
 
-            parentServerId = findFolderServerId(account, parentFolderId)
+            parentServerId = folderQueryRepository.findFolderServerId(account, parentFolderId)
                 ?: return@performOperation FolderOperationResult.FolderNotFound
         }
 
@@ -101,11 +101,11 @@ class FolderManagementOperations(
         newName: String,
     ): FolderOperationResult = performOperation {
         val delimiter = account.folderPathDelimiter
-        val folder = findFolder(account, folderId)
+        val folder = folderQueryRepository.findFolder(account, folderId)
             ?: return@performOperation FolderOperationResult.FolderNotFound
         if (!canRename(folder)) return@performOperation FolderOperationResult.NotAllowed
 
-        val serverId = findFolderServerId(account, folderId)
+        val serverId = folderQueryRepository.findFolderServerId(account, folderId)
             ?: return@performOperation FolderOperationResult.FolderNotFound
         if (serverId.equals(INBOX, ignoreCase = true)) return@performOperation FolderOperationResult.NotAllowed
 
@@ -132,14 +132,14 @@ class FolderManagementOperations(
         account: LegacyAccountDto,
         folderId: Long,
     ): FolderOperationResult = performOperation {
-        val folder = findFolder(account, folderId)
+        val folder = folderQueryRepository.findFolder(account, folderId)
             ?: return@performOperation FolderOperationResult.FolderNotFound
         if (!canDelete(folder)) return@performOperation FolderOperationResult.NotAllowed
 
-        val serverId = findFolderServerId(account, folderId)
+        val serverId = folderQueryRepository.findFolderServerId(account, folderId)
             ?: return@performOperation FolderOperationResult.FolderNotFound
 
-        val hasSubfolders = getRemoteFolders(account).any { remoteFolder ->
+        val hasSubfolders = remoteFolderQueryRepository.getRemoteFolders(account).any { remoteFolder ->
             FolderServerIdHelper.isSubfolder(remoteFolder.serverId, serverId, account.folderPathDelimiter)
         }
         if (hasSubfolders) {
@@ -151,7 +151,7 @@ class FolderManagementOperations(
     }
 
     private suspend fun folderExists(account: LegacyAccountDto, serverId: String): Boolean {
-        return getRemoteFolders(account).any { it.serverId == serverId }
+        return remoteFolderQueryRepository.getRemoteFolders(account).any { it.serverId == serverId }
     }
 
     /**
@@ -180,29 +180,29 @@ class FolderManagementOperations(
         }
     }
 
-    private suspend fun findFolder(account: LegacyAccountDto, folderId: Long): Folder? {
-        return folderQueryRepository.findById(account.id, folderId).getOrThrow()
-    }
-
-    private suspend fun findFolderServerId(account: LegacyAccountDto, folderId: Long): String? {
-        return folderQueryRepository.findFolderServerIdById(account.id, folderId).getOrThrow()?.serverId
-    }
-
-    private suspend fun getRemoteFolders(account: LegacyAccountDto): List<RemoteFolder> {
-        return remoteFolderQueryRepository.getAllByAccountId(account.id).getOrThrow()
-    }
-
-    private fun <T> Outcome<T, FolderError>.getOrThrow(): T {
-        return fold(
-            onSuccess = { it },
-            onFailure = { error -> throw FolderQueryException(error) },
-        )
-    }
-
-    private class FolderQueryException(error: FolderError) :
-        MessagingException("Failed to query folders: ${error::class.simpleName}", error.throwable)
-
     private companion object {
         const val INBOX = "INBOX"
     }
 }
+
+private suspend fun FolderQueryRepository.findFolder(account: LegacyAccountDto, folderId: Long): Folder? {
+    return findById(account.id, folderId).getOrThrow()
+}
+
+private suspend fun FolderQueryRepository.findFolderServerId(account: LegacyAccountDto, folderId: Long): String? {
+    return findFolderServerIdById(account.id, folderId).getOrThrow()?.serverId
+}
+
+private suspend fun RemoteFolderQueryRepository.getRemoteFolders(account: LegacyAccountDto): List<RemoteFolder> {
+    return getAllByAccountId(account.id).getOrThrow()
+}
+
+private fun <T> Outcome<T, FolderError>.getOrThrow(): T {
+    return fold(
+        onSuccess = { it },
+        onFailure = { error -> throw FolderQueryException(error) },
+    )
+}
+
+private class FolderQueryException(error: FolderError) :
+    MessagingException("Failed to query folders: ${error::class.simpleName}", error.throwable)
