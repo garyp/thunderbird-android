@@ -34,10 +34,27 @@ class DemoBackend(
     override val supportsTrashFolder: Boolean = true
     override val supportsSearchByDate: Boolean = false
     override val supportsFolderSubscriptions: Boolean = false
+    override val supportsFolderManagement: Boolean = false
     override val isPushCapable: Boolean = false
 
     override fun refreshFolderList(): FolderPathDelimiter? {
         return commandRefreshFolderList.refreshFolderList()
+    }
+
+    override fun createFolder(folderServerId: String) {
+        throw UnsupportedOperationException("not implemented")
+    }
+
+    override fun renameFolder(
+        folderServerId: String,
+        newFolderServerId: String,
+        folderPathDelimiter: FolderPathDelimiter,
+    ) {
+        throw UnsupportedOperationException("not implemented")
+    }
+
+    override fun deleteFolder(folderServerId: String) {
+        throw UnsupportedOperationException("not implemented")
     }
 
     override fun sync(folderServerId: String, syncConfig: SyncConfig, listener: SyncListener) =

@@ -33,11 +33,28 @@ class Pop3Backend(
     override val supportsTrashFolder = false
     override val supportsSearchByDate = false
     override val supportsFolderSubscriptions = false
+    override val supportsFolderManagement = false
     override val isPushCapable = false
 
     override fun refreshFolderList(): FolderPathDelimiter? {
         commandRefreshFolderList.refreshFolderList()
         return null
+    }
+
+    override fun createFolder(folderServerId: String) {
+        throw UnsupportedOperationException("not supported")
+    }
+
+    override fun renameFolder(
+        folderServerId: String,
+        newFolderServerId: String,
+        folderPathDelimiter: FolderPathDelimiter,
+    ) {
+        throw UnsupportedOperationException("not supported")
+    }
+
+    override fun deleteFolder(folderServerId: String) {
+        throw UnsupportedOperationException("not supported")
     }
 
     override fun sync(folderServerId: String, syncConfig: SyncConfig, listener: SyncListener) {

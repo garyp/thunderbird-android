@@ -11,6 +11,13 @@
         app:actionViewClass="androidx.appcompat.widget.SearchView"
         />
     <item
+        android:id="@+id/create_folder"
+        android:icon="@drawable/ic_add"
+        android:title="@string/create_folder_action"
+        android:visible="false"
+        app:showAsAction="ifRoom"
+        />
+    <item
         android:id="@+id/list_folders"
         android:icon="@drawable/ic_refresh"
         android:title="@string/refresh_folders_action"

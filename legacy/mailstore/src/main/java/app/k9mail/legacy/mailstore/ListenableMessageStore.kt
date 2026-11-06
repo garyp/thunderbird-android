@@ -27,6 +27,11 @@ class ListenableMessageStore(
         notifyFolderSettingsChanged()
     }
 
+    override fun renameFolder(folderServerId: String, newFolderServerId: String, name: String) {
+        messageStore.renameFolder(folderServerId, newFolderServerId, name)
+        notifyFolderSettingsChanged()
+    }
+
     override fun updateFolderSettings(folderDetails: FolderDetails) {
         messageStore.updateFolderSettings(folderDetails)
         notifyFolderSettingsChanged()

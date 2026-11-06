@@ -39,10 +39,27 @@ class JmapBackend(
     override val supportsTrashFolder = true
     override val supportsSearchByDate = true
     override val supportsFolderSubscriptions = false // TODO: add support
+    override val supportsFolderManagement = false // TODO: add support
     override val isPushCapable = false // FIXME
 
     override fun refreshFolderList(): FolderPathDelimiter? {
         return commandRefreshFolderList.refreshFolderList()
+    }
+
+    override fun createFolder(folderServerId: String) {
+        throw UnsupportedOperationException("not implemented")
+    }
+
+    override fun renameFolder(
+        folderServerId: String,
+        newFolderServerId: String,
+        folderPathDelimiter: FolderPathDelimiter,
+    ) {
+        throw UnsupportedOperationException("not implemented")
+    }
+
+    override fun deleteFolder(folderServerId: String) {
+        throw UnsupportedOperationException("not implemented")
     }
 
     override fun sync(folderServerId: String, syncConfig: SyncConfig, listener: SyncListener) {

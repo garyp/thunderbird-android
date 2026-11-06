@@ -16,10 +16,53 @@ interface Backend {
     val supportsTrashFolder: Boolean
     val supportsSearchByDate: Boolean
     val supportsFolderSubscriptions: Boolean
+
+    /**
+     * Whether this backend supports creating, renaming, and deleting folders on the server.
+     */
+    val supportsFolderManagement: Boolean
     val isPushCapable: Boolean
 
     @Throws(MessagingException::class)
     fun refreshFolderList(): FolderPathDelimiter?
+
+    /**
+     * Creates a folder on the server and adds it to the local folder list.
+     *
+     * @param folderServerId The server ID of the new folder. For a subfolder this is the server ID of the parent
+     *   folder, followed by the path delimiter and the name of the new folder.
+     *
+     * @throws FolderAlreadyExistsException if a folder with that server ID already exists on the server.
+     * @throws FolderOperationException if the server refused to create the folder.
+     * @throws MessagingException in case of other errors, e.g. network errors.
+     */
+    @Throws(MessagingException::class)
+    fun createFolder(folderServerId: String)
+
+    /**
+     * Renames a folder on the server and updates the local folder list, keeping the locally stored messages and
+     * folder settings.
+     *
+     * Subfolders are renamed as well.
+     *
+     * @param folderPathDelimiter The delimiter separating levels in the folder hierarchy. Used to find subfolders.
+     *
+     * @throws FolderAlreadyExistsException if a folder named [newFolderServerId] already exists on the server.
+     * @throws FolderOperationException if the server refused to rename the folder.
+     * @throws MessagingException in case of other errors, e.g. network errors.
+     */
+    @Throws(MessagingException::class)
+    fun renameFolder(folderServerId: String, newFolderServerId: String, folderPathDelimiter: FolderPathDelimiter)
+
+    /**
+     * Deletes a folder on the server and removes it, including all locally stored messages, from the local folder
+     * list.
+     *
+     * @throws FolderOperationException if the server refused to delete the folder.
+     * @throws MessagingException in case of other errors, e.g. network errors.
+     */
+    @Throws(MessagingException::class)
+    fun deleteFolder(folderServerId: String)
 
     // TODO: Add a way to cancel the sync process
     fun sync(folderServerId: String, syncConfig: SyncConfig, listener: SyncListener)

@@ -36,6 +36,10 @@ internal open class FakeBackendFolderUpdater(
         if (exception != null) throw exception
     }
 
+    override fun renameFolder(folderServerId: String, newFolderServerId: String, name: String) {
+        if (exception != null) throw exception
+    }
+
     override fun close() {
         closeCalls += 1
         if (exception != null) throw exception
