@@ -11,7 +11,7 @@ internal class UpdateFolderOperations(private val lockableDatabase: LockableData
     fun changeFolder(folderServerId: String, name: String, type: FolderType) {
         lockableDatabase.execute(false) { db ->
             val values = ContentValues().apply {
-                put("name", name.replace("\\[(Gmail|Google Mail)]/".toRegex(), ""))
+                put("name", removeGmailPrefix(name))
                 put("type", type.toDatabaseFolderType())
             }
 
@@ -23,7 +23,7 @@ internal class UpdateFolderOperations(private val lockableDatabase: LockableData
         lockableDatabase.execute(false) { db ->
             val values = ContentValues().apply {
                 put("server_id", newFolderServerId)
-                put("name", name.replace("\\[(Gmail|Google Mail)]/".toRegex(), ""))
+                put("name", removeGmailPrefix(name))
             }
 
             db.update("folders", values, "server_id = ?", arrayOf(folderServerId))
