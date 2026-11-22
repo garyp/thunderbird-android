@@ -14,6 +14,7 @@ dependencies {
 
     implementation(libs.kotlinx.serialization.json)
 
+    testImplementation(projects.backend.testing)
     testImplementation(projects.mail.testing)
 }
 
