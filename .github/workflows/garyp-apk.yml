@@ -3,7 +3,7 @@
 # so it can be installed (and kept up to date) with Obtainium.
 #
 # Required repository secrets (Settings > Secrets and variables > Actions):
-#   FORK_SIGNING_KEY        base64-encoded keystore (base64 -w0 fork-test.jks)
+#   FORK_SIGNING_KEY        base64-encoded keystore (base64 -w0 garyp-release.jks)
 #   FORK_KEY_ALIAS          key alias in the keystore
 #   FORK_KEY_STORE_PASSWORD keystore password
 #   FORK_KEY_PASSWORD       key password
@@ -16,7 +16,7 @@
 #   versionCode = <upstream versionCode> * 100000 + <run number>
 # This keeps increasing across upstream versionCode bumps for up to 99999 runs. Renaming this workflow file
 # resets the run number, which would produce lower versionCodes than already installed builds.
-name: Fork - Test APK
+name: garyp - APK
 
 on:
   workflow_dispatch:
@@ -33,7 +33,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: fork-test-apk
+  group: garyp-apk
   cancel-in-progress: false
 
 jobs:
@@ -180,6 +180,6 @@ jobs:
             --repo "${REPOSITORY}" \
             --target "${COMMIT_SHA}" \
             --prerelease \
-            --title "Thunderbird test build ${VERSION_NAME}" \
-            --notes "Unofficial test build of \`${SOURCE_REF}\` (${COMMIT_SHA}). versionCode ${VERSION_CODE}; upstream ${UPSTREAM_NAME} (${UPSTREAM_CODE}); application ID \`${APPLICATION_ID}\`. Built by ${RUN_URL}" \
+            --title "Thunderbird garyp build ${VERSION_NAME}" \
+            --notes "Unofficial build of \`${SOURCE_REF}\` (${COMMIT_SHA}). versionCode ${VERSION_CODE}; upstream ${UPSTREAM_NAME} (${UPSTREAM_CODE}); application ID \`${APPLICATION_ID}\`. Built by ${RUN_URL}" \
             uploads/*.apk
