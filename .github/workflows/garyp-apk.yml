@@ -1,0 +1,189 @@
+---
+# Fork-only workflow: builds a signed fossDaily APK and publishes it as a GitHub pre-release,
+# so it can be installed (and kept up to date) with Obtainium.
+#
+# Required repository secrets (Settings > Secrets and variables > Actions):
+#   FORK_SIGNING_KEY        base64-encoded keystore (base64 -w0 garyp-release.jks)
+#   FORK_KEY_ALIAS          key alias in the keystore
+#   FORK_KEY_STORE_PASSWORD keystore password
+#   FORK_KEY_PASSWORD       key password
+#
+# Keep the keystore safe: Android only installs updates signed with the same key.
+#
+# Versioning follows the upstream values on the built branch and this workflow's run number, so it is
+# deterministic (re-running a run produces the same version):
+#   versionName = <upstream versionName>-garyp.<run number>
+#   versionCode = <upstream versionCode> * 100000 + <run number>
+# This keeps increasing across upstream versionCode bumps for up to 99999 runs. Renaming this workflow file
+# resets the run number, which would produce lower versionCodes than already installed builds.
+name: garyp - APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag or commit to build
+        required: true
+        default: release
+  push:
+    branches:
+      - release
+
+permissions:
+  contents: read
+
+concurrency:
+  group: garyp-apk
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build, sign and publish fossDaily APK
+    # Never run in the upstream repository, even if this file ends up there.
+    if: ${{ github.repository_owner != 'thunderbird' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write # create releases
+    env:
+      SOURCE_REF: ${{ inputs.ref || github.sha }}
+      # The daily build type appends ".daily", giving com.realify.gary.thunderbird.android.daily
+      FORK_APPLICATION_ID_BASE: com.realify.gary.thunderbird.android
+    steps:
+      - name: Check signing secrets
+        env:
+          SIGNING_KEY: ${{ secrets.FORK_SIGNING_KEY }}
+          KEY_ALIAS: ${{ secrets.FORK_KEY_ALIAS }}
+          KEY_STORE_PASSWORD: ${{ secrets.FORK_KEY_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.FORK_KEY_PASSWORD }}
+        run: |
+          for name in SIGNING_KEY KEY_ALIAS KEY_STORE_PASSWORD KEY_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Repository secret FORK_${name} is not set."
+              exit 1
+            fi
+          done
+
+      - name: Checkout the repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.SOURCE_REF }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Cleanup disk
+        uses: ./.github/actions/disk-cleanup
+
+      - name: Setup Gradle environment
+        uses: ./.github/actions/setup-gradle
+        with:
+          # Save the Gradle cache too (upstream only does this for pushes to main). The cache key is derived
+          # from the build files, so builds of this fork's release branch otherwise never get a cache hit.
+          write-cache: 'true'
+
+      - name: Set version and application ID
+        id: version
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          BUILD_FILE=app-thunderbird/build.gradle.kts
+
+          UPSTREAM_CODE=$(sed -n -E 's/^ *versionCode = ([0-9]+).*/\1/p' "$BUILD_FILE" | head -n 1)
+          UPSTREAM_NAME=$(sed -n -E 's/^ *versionName = "([^"]+)".*/\1/p' "$BUILD_FILE" | head -n 1)
+          if [[ -z "$UPSTREAM_CODE" || -z "$UPSTREAM_NAME" ]]; then
+            echo "::error::Could not read versionCode/versionName from $BUILD_FILE"
+            exit 1
+          fi
+
+          # Android's maximum versionCode is 2100000000
+          if (( RUN_NUMBER > 99999 || UPSTREAM_CODE > 20999 )); then
+            echo "::error::versionCode would overflow (upstream ${UPSTREAM_CODE}, run ${RUN_NUMBER})"
+            exit 1
+          fi
+          VERSION_CODE=$((UPSTREAM_CODE * 100000 + RUN_NUMBER))
+          SUFFIX="-garyp.${RUN_NUMBER}"
+          VERSION_NAME="${UPSTREAM_NAME}${SUFFIX}"
+
+          sed -i -E "s/^( *versionCode = )[0-9]+/\1${VERSION_CODE}/" "$BUILD_FILE"
+          sed -i -E "/create\(\"daily\"\)/,/^        }/ s/versionNameSuffix = \"[^\"]*\"/versionNameSuffix = \"${SUFFIX}\"/" "$BUILD_FILE"
+          sed -i -E "s/^( *applicationId = )\"[^\"]+\"/\1\"${FORK_APPLICATION_ID_BASE}\"/" "$BUILD_FILE"
+
+          grep -q "versionCode = ${VERSION_CODE}$" "$BUILD_FILE"
+          grep -q "versionNameSuffix = \"${SUFFIX}\"" "$BUILD_FILE"
+          grep -q "applicationId = \"${FORK_APPLICATION_ID_BASE}\"" "$BUILD_FILE"
+
+          {
+            echo "code=${VERSION_CODE}"
+            echo "name=${VERSION_NAME}"
+            echo "upstream_code=${UPSTREAM_CODE}"
+            echo "upstream_name=${UPSTREAM_NAME}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Upstream ${UPSTREAM_NAME} (${UPSTREAM_CODE}) -> ${VERSION_NAME} (${VERSION_CODE})"
+
+      - name: Build fossDaily APK
+        run: ./gradlew :app-thunderbird:assembleFossDaily -Pci=true
+
+      - name: Verify APK metadata
+        env:
+          EXPECTED_PACKAGE: ${{ env.FORK_APPLICATION_ID_BASE }}.daily
+          EXPECTED_CODE: ${{ steps.version.outputs.code }}
+          EXPECTED_NAME: ${{ steps.version.outputs.name }}
+        run: |
+          APK=app-thunderbird/build/outputs/apk/foss/daily/app-thunderbird-foss-daily-unsigned.apk
+          AAPT2="$(find "$ANDROID_HOME/build-tools" -name aapt2 | sort -V | tail -n 1)"
+          BADGING=$("$AAPT2" dump badging "$APK" | head -n 1)
+          echo "$BADGING"
+          [[ "$BADGING" == *"name='${EXPECTED_PACKAGE}'"* ]] || { echo "::error::Unexpected package"; exit 1; }
+          [[ "$BADGING" == *"versionCode='${EXPECTED_CODE}'"* ]] || { echo "::error::Unexpected versionCode"; exit 1; }
+          [[ "$BADGING" == *"versionName='${EXPECTED_NAME}'"* ]] || { echo "::error::Unexpected versionName"; exit 1; }
+
+      - name: Collect unsigned APK
+        run: |
+          mkdir -p uploads
+          mv app-thunderbird/build/outputs/apk/foss/daily/app-thunderbird-foss-daily-unsigned.apk \
+            uploads/thunderbird-foss-daily.apk
+
+      - name: Sign APK
+        uses: noriban/sign-android-release@5f144321d3c7c2233266e78b42360345d8bbe403 # v5.1
+        with:
+          releaseDirectory: uploads/
+          signingKeyBase64: ${{ secrets.FORK_SIGNING_KEY }}
+          alias: ${{ secrets.FORK_KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.FORK_KEY_STORE_PASSWORD }}
+          keyPassword: ${{ secrets.FORK_KEY_PASSWORD }}
+
+      - name: Prepare release asset
+        env:
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+        run: |
+          rm -f uploads/*.jks
+          mv uploads/thunderbird-foss-daily-signed.apk "uploads/thunderbird-foss-daily-${VERSION_NAME}.apk"
+          rm -f uploads/thunderbird-foss-daily.apk uploads/*-aligned.apk
+          ls -l uploads/
+
+      - name: Publish pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+          VERSION_CODE: ${{ steps.version.outputs.code }}
+          UPSTREAM_NAME: ${{ steps.version.outputs.upstream_name }}
+          UPSTREAM_CODE: ${{ steps.version.outputs.upstream_code }}
+          APPLICATION_ID: ${{ env.FORK_APPLICATION_ID_BASE }}.daily
+          REPOSITORY: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          COMMIT_SHA=$(git rev-parse HEAD)
+
+          # Re-running a run produces the same version, so replace the APK of an existing release.
+          if gh release view "${VERSION_NAME}" --repo "${REPOSITORY}" > /dev/null 2>&1; then
+            gh release upload "${VERSION_NAME}" --repo "${REPOSITORY}" --clobber uploads/*.apk
+            exit 0
+          fi
+
+          gh release create "${VERSION_NAME}" \
+            --repo "${REPOSITORY}" \
+            --target "${COMMIT_SHA}" \
+            --prerelease \
+            --title "Thunderbird garyp build ${VERSION_NAME}" \
+            --notes "Unofficial build of \`${SOURCE_REF}\` (${COMMIT_SHA}). versionCode ${VERSION_CODE}; upstream ${UPSTREAM_NAME} (${UPSTREAM_CODE}); application ID \`${APPLICATION_ID}\`. Built by ${RUN_URL}" \
+            uploads/*.apk
