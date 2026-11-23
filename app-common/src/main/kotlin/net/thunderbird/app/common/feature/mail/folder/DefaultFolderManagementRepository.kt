@@ -183,7 +183,7 @@ internal class DefaultFolderManagementRepository(
         } catch (e: FolderQueryException) {
             logger.error(TAG) { "Failed to query folders: ${e.error::class.simpleName}" }
             Outcome.failure(FolderManagementError.Failed)
-        } catch (e: RuntimeException) {
+        } catch (e: Exception) {
             // Exception messages may contain folder names, so only the type is logged.
             logger.error(TAG) { "Folder operation failed: ${e::class.simpleName}" }
             Outcome.failure(FolderManagementError.Failed)

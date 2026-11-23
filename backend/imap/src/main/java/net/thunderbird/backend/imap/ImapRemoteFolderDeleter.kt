@@ -34,11 +34,17 @@ class ImapRemoteFolderDeleter(
         val name = folderServerId.serverId
         val folder = imapStore.getFolder(name)
         try {
+            // The local folder list may not contain all subfolders, e.g. unsubscribed ones. Many servers would delete
+            // the folder's messages but keep it as a non-selectable parent (RFC 9051, section 6.3.5).
+            if (folder.hasSubfolders()) {
+                return@withContext Outcome.failure(RemoteFolderOperationError.HasSubfolders)
+            }
+
             try {
                 folder.delete()
             } catch (e: ImapFolderOperationException) {
                 // A folder that was already deleted on the server (e.g. by another client) counts as deleted.
-                if (folder.exists()) {
+                if (folder.isListed()) {
                     logger.warn(TAG) { "Server refused to delete folder" }
                     return@withContext Outcome.failure(RemoteFolderOperationError.RejectedByServer(e.responseText))
                 }

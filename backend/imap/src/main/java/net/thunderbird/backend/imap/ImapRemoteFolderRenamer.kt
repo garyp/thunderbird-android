@@ -17,6 +17,7 @@ import net.thunderbird.feature.account.AccountId
 import net.thunderbird.feature.mail.folder.api.FolderPathDelimiter
 
 private const val TAG = "ImapRemoteFolderRenamer"
+private const val INBOX = "INBOX"
 
 /**
  * Renames a folder using the IMAP `RENAME` command (RFC 9051, section 6.3.6), which also renames all subfolders.
@@ -46,7 +47,9 @@ class ImapRemoteFolderRenamer(
             val folder = imapStore.getFolder(oldName)
             val newFolder = imapStore.getFolder(newName)
             try {
-                if (newFolder.exists()) {
+                // On servers with case-insensitive names the new name "exists" when only the case changes.
+                val isCaseChange = newName.equals(oldName, ignoreCase = true)
+                if (!isCaseChange && newFolder.exists()) {
                     return@withContext Outcome.failure(RemoteFolderOperationError.AlreadyExists)
                 }
 
@@ -56,9 +59,11 @@ class ImapRemoteFolderRenamer(
                 newFolder.close()
             }
 
+            val prefixedOldName = withPrefix(oldName)
+            val prefixedNewName = withPrefix(newName)
             for (subscribedFolder in subscribedFolders) {
                 subscriptions.unsubscribe(subscribedFolder)
-                subscriptions.subscribe(newName + subscribedFolder.removePrefix(oldName))
+                subscriptions.subscribe(prefixedNewName + withPrefix(subscribedFolder).removePrefix(prefixedOldName))
             }
 
             Outcome.success(Unit)
@@ -72,18 +77,30 @@ class ImapRemoteFolderRenamer(
     }
 
     /**
-     * Returns the server IDs (without namespace prefix) of the folder and its subfolders that exist on the server.
+     * Returns the server IDs of the folder and its subfolders that exist on the server.
+     *
+     * Server IDs of [ImapStore.getFolders] include the namespace prefix. The given [folderServerId] may or may not
+     * include it, so both are compared with the prefix.
      */
     private fun findFolderAndSubfolders(
         folderServerId: String,
         folderPathDelimiter: FolderPathDelimiter,
     ): List<String> {
-        val prefix = imapStore.combinedPrefix.orEmpty()
-        val subfolderPrefix = folderServerId + folderPathDelimiter
+        val prefixedFolderServerId = withPrefix(folderServerId)
+        val subfolderPrefix = prefixedFolderServerId + folderPathDelimiter
 
         return imapStore.getFolders()
-            .map { it.serverId.removePrefix(prefix) }
-            .filter { it == folderServerId || it.startsWith(subfolderPrefix) }
+            .map { it.serverId }
+            .filter { withPrefix(it) == prefixedFolderServerId || withPrefix(it).startsWith(subfolderPrefix) }
+    }
+
+    private fun withPrefix(folderServerId: String): String {
+        val prefix = imapStore.combinedPrefix.orEmpty()
+        return if (folderServerId.equals(INBOX, ignoreCase = true) || folderServerId.startsWith(prefix)) {
+            folderServerId
+        } else {
+            prefix + folderServerId
+        }
     }
 }
 

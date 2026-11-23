@@ -16,8 +16,10 @@ import net.thunderbird.app.common.feature.mail.FakeData
 import net.thunderbird.backend.api.folder.RemoteFolderCreationOutcome
 import net.thunderbird.backend.api.folder.RemoteFolderOperationError
 import net.thunderbird.components.core.outcome.Outcome
+import net.thunderbird.core.common.exception.MessagingException
 import net.thunderbird.core.common.mail.Protocols
 import net.thunderbird.core.logging.testing.TestLogger
+import net.thunderbird.feature.account.AccountId
 import net.thunderbird.feature.mail.folder.FolderType
 import net.thunderbird.feature.mail.folder.api.Folder
 import net.thunderbird.feature.mail.folder.api.FolderManagementOptions
@@ -36,6 +38,7 @@ class DefaultFolderManagementRepositoryTest {
     private val backendStorageFactory = FakeBackendStorageFactory()
     private val localFolders = backendStorageFactory.backendStorage.folders
     private val remoteFolderOperations = FakeRemoteFolderOperations()
+    private val refreshedAccounts = mutableListOf<AccountId>()
     private val testSubject = DefaultFolderManagementRepository(
         accountManager = accountManager,
         folderQueryRepository = folderRepository,
@@ -45,6 +48,7 @@ class DefaultFolderManagementRepositoryTest {
             remoteFolderCreatorFactory = remoteFolderOperations,
             remoteFolderRenamerFactory = remoteFolderOperations,
             remoteFolderDeleterFactory = remoteFolderOperations,
+            folderListRefresher = { accountId -> refreshedAccounts.add(accountId) },
             logger = TestLogger(),
             ioDispatcher = testDispatcher,
         ),
@@ -140,15 +144,16 @@ class DefaultFolderManagementRepositoryTest {
     }
 
     @Test
-    fun `create() at top level should create folder with trimmed name`() = runTest(testDispatcher) {
-        // Act
-        val result = testSubject.create(accountId, parentFolderId = null, name = "  Projects ")
+    fun `create() at top level should create folder with trimmed name and refresh folder list`() =
+        runTest(testDispatcher) {
+            // Act
+            val result = testSubject.create(accountId, parentFolderId = null, name = "  Projects ")
 
-        // Assert
-        assertThat(result).isEqualTo(Outcome.success(Unit))
-        assertThat(remoteFolderOperations.createdFolders).containsExactly("Projects")
-        assertThat(localFolders.keys.toList()).containsExactly("Projects")
-    }
+            // Assert
+            assertThat(result).isEqualTo(Outcome.success(Unit))
+            assertThat(remoteFolderOperations.createdFolders).containsExactly("Projects")
+            assertThat(refreshedAccounts).containsExactly(accountId)
+        }
 
     @Test
     fun `create() with parent should create subfolder`() = runTest(testDispatcher) {
@@ -161,7 +166,7 @@ class DefaultFolderManagementRepositoryTest {
         // Assert
         assertThat(result).isEqualTo(Outcome.success(Unit))
         assertThat(remoteFolderOperations.createdFolders).containsExactly("Work/2026")
-        assertThat(localFolders.keys).containsExactlyInAnyOrder("Work", "Work/2026")
+        assertThat(refreshedAccounts).containsExactly(accountId)
     }
 
     @Test
@@ -201,7 +206,7 @@ class DefaultFolderManagementRepositoryTest {
 
         // Assert
         assertThat(result).isEqualTo(Outcome.failure(FolderManagementError.ServerError("Quota exceeded")))
-        assertThat(localFolders).isEmpty()
+        assertThat(refreshedAccounts).isEmpty()
     }
 
     @Test
@@ -351,6 +356,48 @@ class DefaultFolderManagementRepositoryTest {
         // Assert
         assertThat(result).isEqualTo(Outcome.failure(FolderManagementError.Failed))
         assertThat(remoteFolderOperations.deletedFolders).isEmpty()
+    }
+
+    @Test
+    fun `rename() should succeed and refresh folder list when the local update fails`() = runTest(testDispatcher) {
+        // Arrange
+        addFolder(id = 1, serverId = "Old")
+        backendStorageFactory.exception = MessagingException("Database error")
+
+        // Act
+        val result = testSubject.rename(accountId, folderId = 1, newName = "New")
+
+        // Assert
+        assertThat(result).isEqualTo(Outcome.success(Unit))
+        assertThat(remoteFolderOperations.renamedFolders).containsExactly("Old" to "New")
+        assertThat(refreshedAccounts).containsExactly(accountId)
+    }
+
+    @Test
+    fun `delete() should map subfolders on the server to HasSubfolders`() = runTest(testDispatcher) {
+        // Arrange
+        addFolder(id = 1, serverId = "Parent")
+        remoteFolderOperations.operationOutcome = Outcome.failure(RemoteFolderOperationError.HasSubfolders)
+
+        // Act
+        val result = testSubject.delete(accountId, folderId = 1)
+
+        // Assert
+        assertThat(result).isEqualTo(Outcome.failure(FolderManagementError.HasSubfolders))
+        assertThat(localFolders.keys.toList()).containsExactly("Parent")
+    }
+
+    @Test
+    fun `checked exception should return Failed instead of throwing`() = runTest(testDispatcher) {
+        // Arrange
+        addFolder(id = 1, serverId = "Folder")
+        remoteFolderOperations.exception = MessagingException("Database error")
+
+        // Act
+        val result = testSubject.delete(accountId, folderId = 1)
+
+        // Assert
+        assertThat(result).isEqualTo(Outcome.failure(FolderManagementError.Failed))
     }
 
     private suspend fun usePop3Account() {

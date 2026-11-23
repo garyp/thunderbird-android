@@ -443,6 +443,85 @@ class RealImapFolderTest {
     }
 
     @Test
+    fun `isListed() should return true for non-selectable folder`() {
+        val testSubject = createFolder("Folder")
+        whenever(imapConnection.executeSimpleCommand("LIST \"\" \"Folder\"")).thenReturn(
+            createImapResponseList(
+                "* LIST (\\Noselect) \"/\" \"Folder\"",
+                "x OK LIST completed",
+            ),
+        )
+
+        val result = testSubject.isListed()
+
+        assertThat(result).isTrue()
+    }
+
+    @Test
+    fun `isListed() should ignore other folders matching wildcards in the name`() {
+        val testSubject = createFolder("50%")
+        whenever(imapConnection.executeSimpleCommand("LIST \"\" \"50%\"")).thenReturn(
+            createImapResponseList(
+                "* LIST () \"/\" \"500\"",
+                "x OK LIST completed",
+            ),
+        )
+
+        val result = testSubject.isListed()
+
+        assertThat(result).isFalse()
+    }
+
+    @Test
+    fun `hasSubfolders() should use HasChildren attribute`() {
+        val testSubject = createFolder("Folder")
+        whenever(imapConnection.executeSimpleCommand("LIST \"\" \"Folder\"")).thenReturn(
+            createImapResponseList(
+                "* LIST (\\HasChildren) \"/\" \"Folder\"",
+                "x OK LIST completed",
+            ),
+        )
+
+        val result = testSubject.hasSubfolders()
+
+        assertThat(result).isTrue()
+        verify(imapConnection, never()).executeSimpleCommand("LIST \"\" \"Folder/%\"")
+    }
+
+    @Test
+    fun `hasSubfolders() without CHILDREN attributes should list the next level`() {
+        val testSubject = createFolder("Folder")
+        whenever(imapConnection.executeSimpleCommand("LIST \"\" \"Folder\"")).thenReturn(
+            createImapResponseList(
+                "* LIST () \"/\" \"Folder\"",
+                "x OK LIST completed",
+            ),
+        )
+        whenever(imapConnection.executeSimpleCommand("LIST \"\" \"Folder/%\"")).thenReturn(
+            createImapResponseList(
+                "* LIST (\\Noselect) \"/\" \"Folder/Child\"",
+                "x OK LIST completed",
+            ),
+        )
+
+        val result = testSubject.hasSubfolders()
+
+        assertThat(result).isTrue()
+    }
+
+    @Test
+    fun `hasSubfolders() of folder that isn't listed should return false`() {
+        val testSubject = createFolder("Folder")
+        whenever(imapConnection.executeSimpleCommand("LIST \"\" \"Folder\"")).thenReturn(
+            createImapResponseList("x OK LIST completed"),
+        )
+
+        val result = testSubject.hasSubfolders()
+
+        assertThat(result).isFalse()
+    }
+
+    @Test
     fun `isSubscribed() on IMAP4rev2 server should use LIST (SUBSCRIBED)`() {
         val testSubject = createFolder("Folder")
         imapConnection.stub {

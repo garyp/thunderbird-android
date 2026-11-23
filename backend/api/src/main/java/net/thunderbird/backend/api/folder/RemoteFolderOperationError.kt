@@ -10,6 +10,11 @@ sealed interface RemoteFolderOperationError {
     data object AlreadyExists : RemoteFolderOperationError
 
     /**
+     * The folder can't be deleted because it has subfolders on the server.
+     */
+    data object HasSubfolders : RemoteFolderOperationError
+
+    /**
      * The server refused the operation.
      *
      * @param serverMessage The server's explanation, if any. This is untrusted, server-provided text that may only be
@@ -17,7 +22,10 @@ sealed interface RemoteFolderOperationError {
      */
     data class RejectedByServer(
         val serverMessage: String?,
-    ) : RemoteFolderOperationError
+    ) : RemoteFolderOperationError {
+        // The server message may contain folder names, so keep it out of logs.
+        override fun toString(): String = "RejectedByServer(serverMessage=<hidden>)"
+    }
 
     /**
      * The operation couldn't be completed, e.g. because of a network error.

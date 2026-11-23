@@ -123,11 +123,7 @@ internal class DemoRemoteFolderDeleter(
                 Outcome.failure(RemoteFolderOperationError.RejectedByServer("Can't delete INBOX"))
             }
 
-            hasSubfolders -> {
-                Outcome.failure(
-                    RemoteFolderOperationError.RejectedByServer("Mailbox has inferior hierarchical names"),
-                )
-            }
+            hasSubfolders -> Outcome.failure(RemoteFolderOperationError.HasSubfolders)
 
             else -> {
                 demoStore.removeFolder(serverId)

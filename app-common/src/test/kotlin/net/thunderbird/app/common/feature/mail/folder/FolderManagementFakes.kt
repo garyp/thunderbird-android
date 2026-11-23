@@ -60,7 +60,12 @@ internal class FakeFolderRepository : FolderQueryRepository, RemoteFolderQueryRe
 internal class FakeBackendStorageFactory(
     val backendStorage: InMemoryBackendStorage = InMemoryBackendStorage(),
 ) : BackendStorageFactory {
-    override fun createBackendStorage(accountId: AccountId): BackendStorage = backendStorage
+    var exception: Exception? = null
+
+    override fun createBackendStorage(accountId: AccountId): BackendStorage {
+        exception?.let { throw it }
+        return backendStorage
+    }
 }
 
 internal class FakeRemoteFolderOperations :
@@ -74,6 +79,7 @@ internal class FakeRemoteFolderOperations :
     var createOutcome: Outcome<RemoteFolderCreationOutcome.Success, RemoteFolderCreationOutcome.Error> =
         Outcome.success(RemoteFolderCreationOutcome.Success.Created)
     var operationOutcome: Outcome<Unit, RemoteFolderOperationError> = Outcome.success(Unit)
+    var exception: Exception? = null
 
     val createdFolders = mutableListOf<String>()
     val renamedFolders = mutableListOf<Pair<String, String>>()
@@ -101,6 +107,7 @@ internal class FakeRemoteFolderOperations :
 
     override suspend fun delete(folderServerId: FolderServerId): Outcome<Unit, RemoteFolderOperationError> {
         deletedFolders.add(folderServerId.serverId)
+        exception?.let { throw it }
         return operationOutcome
     }
 }

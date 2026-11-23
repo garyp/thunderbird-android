@@ -212,4 +212,12 @@ open class TestImapFolder(override val serverId: String) : ImapFolder {
     override fun isSubscribed(): Boolean {
         throw UnsupportedOperationException("not implemented")
     }
+
+    override fun isListed(): Boolean {
+        throw UnsupportedOperationException("not implemented")
+    }
+
+    override fun hasSubfolders(): Boolean {
+        throw UnsupportedOperationException("not implemented")
+    }
 }

@@ -154,7 +154,7 @@ class DemoRemoteFolderOperationsTest {
 
         // Assert
         assertThat(outcome).isEqualTo(
-            Outcome.failure(RemoteFolderOperationError.RejectedByServer("Mailbox has inferior hierarchical names")),
+            Outcome.failure(RemoteFolderOperationError.HasSubfolders),
         )
         assertThat(demoStore.getFolderIds()).contains("nested")
     }

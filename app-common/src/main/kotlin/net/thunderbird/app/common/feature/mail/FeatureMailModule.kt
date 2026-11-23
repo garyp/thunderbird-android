@@ -5,6 +5,8 @@ import com.fsck.k9.mailstore.DefaultSpecialFolderUpdater
 import net.thunderbird.app.common.feature.mail.folder.DefaultFolderManagementRepository
 import net.thunderbird.app.common.feature.mail.folder.DefaultFolderNameValidator
 import net.thunderbird.app.common.feature.mail.folder.FolderHierarchyUpdater
+import net.thunderbird.app.common.feature.mail.folder.FolderListRefresher
+import net.thunderbird.app.common.feature.mail.folder.MessagingControllerFolderListRefresher
 import net.thunderbird.app.common.feature.mail.message.mailMessageModule
 import net.thunderbird.backend.api.folder.RemoteFolderCreator
 import net.thunderbird.backend.api.folder.RemoteFolderDeleter
@@ -98,7 +100,15 @@ internal val appCommonFeatureMailModule = module {
             remoteFolderCreatorFactory = get(),
             remoteFolderRenamerFactory = get(),
             remoteFolderDeleterFactory = get(),
+            folderListRefresher = get(),
             logger = get(),
+        )
+    }
+
+    factory<FolderListRefresher> {
+        MessagingControllerFolderListRefresher(
+            accountManager = get(),
+            messagingController = get(),
         )
     }
 

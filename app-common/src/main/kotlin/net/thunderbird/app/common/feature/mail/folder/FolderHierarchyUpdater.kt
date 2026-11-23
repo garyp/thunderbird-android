@@ -2,11 +2,9 @@ package net.thunderbird.app.common.feature.mail.folder
 
 import com.fsck.k9.backend.api.BackendFolderUpdater
 import com.fsck.k9.backend.api.BackendStorage
-import com.fsck.k9.backend.api.FolderInfo
-import com.fsck.k9.backend.api.createFolder
 import com.fsck.k9.backend.api.updateFolders
-import com.fsck.k9.mail.FolderType
 import com.fsck.k9.mail.folders.FolderServerId
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -28,6 +26,11 @@ private const val TAG = "FolderHierarchyUpdater"
 /**
  * Changes the folder hierarchy on the server and mirrors successful changes in the local folder list.
  *
+ * Renames are mirrored by renaming the local folders, so locally stored messages and folder settings are retained.
+ * New folders are added by refreshing the folder list, because only the server knows the full name of a new top-level
+ * folder (e.g. with a namespace prefix like `INBOX.`). If mirroring a change fails, the folder list is refreshed
+ * instead, because the server was already changed.
+ *
  * Doesn't enforce any rules. That's the responsibility of the caller.
  */
 internal class FolderHierarchyUpdater(
@@ -35,6 +38,7 @@ internal class FolderHierarchyUpdater(
     private val remoteFolderCreatorFactory: RemoteFolderCreator.Factory,
     private val remoteFolderRenamerFactory: RemoteFolderRenamer.Factory,
     private val remoteFolderDeleterFactory: RemoteFolderDeleter.Factory,
+    private val folderListRefresher: FolderListRefresher,
     private val logger: Logger,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
@@ -44,13 +48,8 @@ internal class FolderHierarchyUpdater(
 
         return outcome.fold(
             onSuccess = {
-                updateLocalFolders(accountId) { backendStorage ->
-                    if (folderServerId !in backendStorage.getFolderServerIds()) {
-                        createFolder(
-                            FolderInfo(serverId = folderServerId, name = folderServerId, type = FolderType.REGULAR),
-                        )
-                    }
-                }
+                folderListRefresher.refresh(accountId)
+                Outcome.success(Unit)
             },
             onFailure = { error -> Outcome.failure(error.toFolderManagementError()) },
         )
@@ -130,6 +129,10 @@ internal class FolderHierarchyUpdater(
         }
     }
 
+    /**
+     * Mirrors a successful change on the server in the local folder list. The operation counts as successful even if
+     * this fails, because the server was changed. In that case, the folder list is refreshed from the server.
+     */
     @Suppress("TooGenericExceptionCaught")
     private suspend fun updateLocalFolders(
         accountId: AccountId,
@@ -138,12 +141,14 @@ internal class FolderHierarchyUpdater(
         try {
             val backendStorage = backendStorageFactory.createBackendStorage(accountId)
             backendStorage.updateFolders { block(backendStorage) }
-            Outcome.success(Unit)
-        } catch (e: RuntimeException) {
-            // The server was changed successfully. The next folder list refresh will fix the local folder list.
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
             logger.error(TAG) { "Failed to update local folder list: ${e::class.simpleName}" }
-            Outcome.failure(FolderManagementError.Failed)
+            folderListRefresher.refresh(accountId)
         }
+
+        Outcome.success(Unit)
     }
 
     private fun RemoteFolderCreationOutcome.Error.toFolderManagementError(): FolderManagementError {
@@ -165,6 +170,8 @@ internal class FolderHierarchyUpdater(
     private fun RemoteFolderOperationError.toFolderManagementError(): FolderManagementError {
         return when (this) {
             RemoteFolderOperationError.AlreadyExists -> FolderManagementError.AlreadyExists
+
+            RemoteFolderOperationError.HasSubfolders -> FolderManagementError.HasSubfolders
 
             RemoteFolderOperationError.NotSupportedOperation -> FolderManagementError.NotSupported
 

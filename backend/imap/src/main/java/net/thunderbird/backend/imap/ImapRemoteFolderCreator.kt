@@ -54,10 +54,11 @@ class ImapRemoteFolderCreator(
             logger.warn(message = { "Server refused to create remote folder" })
             Outcome.failure(RemoteFolderCreationOutcome.Error.RejectedByServer(serverMessage = e.responseText))
         } catch (e: MessagingException) {
-            logger.error(message = { "Failed to create remote folder '${folderServerId.serverId}'" }, throwable = e)
+            // IMAP exceptions contain the command, including the folder name, so only the type is logged.
+            logger.error(message = { "Failed to create remote folder: ${e::class.simpleName}" })
             Outcome.failure(
                 RemoteFolderCreationOutcome.Error.FailedToCreateRemoteFolder(
-                    reason = e.message ?: "Unhandled exception. Please check the logs.",
+                    reason = e::class.simpleName ?: "Unhandled exception",
                 ),
             )
         } finally {

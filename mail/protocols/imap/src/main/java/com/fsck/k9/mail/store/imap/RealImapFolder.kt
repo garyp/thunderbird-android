@@ -365,6 +365,51 @@ internal class RealImapFolder(
     }
 
     @Throws(MessagingException::class)
+    override fun isListed(): Boolean {
+        return listMailbox() != null
+    }
+
+    @Throws(MessagingException::class)
+    override fun hasSubfolders(): Boolean {
+        val mailbox = listMailbox()
+        val delimiter = mailbox?.hierarchyDelimiter
+
+        return when {
+            mailbox == null -> false
+            mailbox.hasAttribute("\\HasChildren") -> true
+            mailbox.hasAttribute("\\HasNoChildren") -> false
+            delimiter.isNullOrEmpty() -> false
+            else -> listSubfolders(mailbox.name + delimiter).isNotEmpty()
+        }
+    }
+
+    /**
+     * Lists the folders on the next hierarchy level below this folder (RFC 9051, section 6.3.9).
+     */
+    @Throws(MessagingException::class)
+    private fun listSubfolders(subfolderPrefix: String): List<ListResponse> {
+        val pattern = ImapUtility.encodeString(folderNameCodec.encode("$subfolderPrefix%"))
+        val responses = executeMailboxCommand(commandName = "LIST") { "LIST \"\" $pattern" }
+
+        // The folder name itself may contain wildcard characters, so only return actual subfolders.
+        return ListResponse.parseList(responses).filter { it.name.startsWith(subfolderPrefix) }
+    }
+
+    /**
+     * Returns the `LIST` response for this folder, or `null` if the server doesn't list it.
+     */
+    @Throws(MessagingException::class)
+    private fun listMailbox(): ListResponse? {
+        val responses = executeMailboxCommand(commandName = "LIST") { "LIST \"\" ${getQuotedMailboxName(serverId)}" }
+        val name = getPrefixedName(serverId)
+
+        // The folder name may contain wildcard characters, so ignore responses for other folders.
+        return ListResponse.parseList(responses).firstOrNull { listResponse ->
+            listResponse.name == name && !listResponse.hasAttribute("\\NonExistent")
+        }
+    }
+
+    @Throws(MessagingException::class)
     private fun getQuotedMailboxName(serverId: String): String {
         // Mailbox names are sent as quoted strings, which can't contain CR, LF, or NUL (RFC 9051, section 4.3).
         // Reject control characters here rather than relying on callers to validate the name.

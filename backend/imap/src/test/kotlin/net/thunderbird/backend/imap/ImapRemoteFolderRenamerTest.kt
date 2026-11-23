@@ -88,4 +88,39 @@ class ImapRemoteFolderRenamerTest {
         assertThat(outcome).isEqualTo(Outcome.success(Unit))
         assertThat(server.mailboxes).containsExactlyInAnyOrder("INBOX", "New")
     }
+
+    @Test
+    fun `rename() with namespace prefix should move subscriptions`() = runTest {
+        // Arrange
+        val prefixedServer = FakeImapServer(combinedPrefix = "INBOX/")
+        prefixedServer.mailboxes += listOf("INBOX/Work", "INBOX/Work/2026")
+        prefixedServer.subscriptions += listOf("INBOX/Work", "INBOX/Work/2026")
+        val testSubject = ImapRemoteFolderRenamer(TestLogger(), prefixedServer)
+
+        // Act
+        val outcome = testSubject.rename(
+            FolderServerId("INBOX/Work"),
+            FolderServerId("INBOX/Projects"),
+            folderPathDelimiter = "/",
+        )
+
+        // Assert
+        assertThat(outcome).isEqualTo(Outcome.success(Unit))
+        assertThat(prefixedServer.mailboxes).containsExactlyInAnyOrder("INBOX", "INBOX/Projects", "INBOX/Projects/2026")
+        assertThat(prefixedServer.subscriptions).containsExactlyInAnyOrder("INBOX/Projects", "INBOX/Projects/2026")
+    }
+
+    @Test
+    fun `rename() that only changes the case should succeed on case-insensitive servers`() = runTest {
+        // Arrange
+        server.caseInsensitive = true
+        server.mailboxes += "work"
+
+        // Act
+        val outcome = testSubject.rename(FolderServerId("work"), FolderServerId("Work"), folderPathDelimiter = "/")
+
+        // Assert
+        assertThat(outcome).isEqualTo(Outcome.success(Unit))
+        assertThat(server.mailboxes).containsExactlyInAnyOrder("INBOX", "Work")
+    }
 }

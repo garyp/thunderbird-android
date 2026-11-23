@@ -55,4 +55,33 @@ class ImapRemoteFolderDeleterTest {
         // Assert
         assertThat(outcome).isEqualTo(Outcome.success(Unit))
     }
+
+    @Test
+    fun `delete() of a folder with subfolders on the server should return HasSubfolders`() = runTest {
+        // Arrange: the subfolder may be missing from the local folder list, e.g. because it isn't subscribed
+        server.mailboxes += listOf("Parent", "Parent/Child")
+
+        // Act
+        val outcome = testSubject.delete(FolderServerId("Parent"))
+
+        // Assert
+        assertThat(outcome).isEqualTo(Outcome.failure(RemoteFolderOperationError.HasSubfolders))
+        assertThat(server.mailboxes).containsExactlyInAnyOrder("INBOX", "Parent", "Parent/Child")
+    }
+
+    @Test
+    fun `delete() refused for a non-selectable folder should return RejectedByServer`() = runTest {
+        // Arrange
+        server.mailboxes += "Folder"
+        server.noSelectMailboxes += "Folder"
+        server.refuseDeleteWith = "Permission denied"
+
+        // Act
+        val outcome = testSubject.delete(FolderServerId("Folder"))
+
+        // Assert
+        assertThat(outcome).isEqualTo(
+            Outcome.failure(RemoteFolderOperationError.RejectedByServer(serverMessage = "Permission denied")),
+        )
+    }
 }

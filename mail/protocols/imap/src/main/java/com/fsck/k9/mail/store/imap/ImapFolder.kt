@@ -167,6 +167,28 @@ interface ImapFolder {
      */
     @Throws(MessagingException::class)
     fun isSubscribed(): Boolean
+
+    /**
+     * Checks whether the server lists this folder using `LIST` (RFC 9051, section 6.3.9). Unlike [exists], this is also
+     * `true` for folders that can't be selected (`\Noselect`).
+     *
+     * @throws ImapFolderOperationException if the server rejected the command.
+     * @throws MessagingException in case of a network error.
+     */
+    @Throws(MessagingException::class)
+    fun isListed(): Boolean
+
+    /**
+     * Checks whether this folder has subfolders on the server, including unsubscribed and non-selectable ones.
+     *
+     * Uses the `\HasChildren`/`\HasNoChildren` attributes (RFC 3348, RFC 9051 section 7.3.1) when the server returns
+     * them, and a `LIST` of the next hierarchy level otherwise.
+     *
+     * @throws ImapFolderOperationException if the server rejected the command.
+     * @throws MessagingException in case of a network error.
+     */
+    @Throws(MessagingException::class)
+    fun hasSubfolders(): Boolean
 }
 
 interface FetchListener {

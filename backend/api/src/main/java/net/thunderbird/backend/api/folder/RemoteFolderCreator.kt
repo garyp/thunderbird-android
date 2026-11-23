@@ -66,7 +66,10 @@ sealed interface RemoteFolderCreationOutcome {
          */
         data class RejectedByServer(
             val serverMessage: String?,
-        ) : Error
+        ) : Error {
+            // The server message may contain folder names, so keep it out of logs.
+            override fun toString(): String = "RejectedByServer(serverMessage=<hidden>)"
+        }
 
         /**
          * Used to flag that the Create Folder operation is not supported by the server.

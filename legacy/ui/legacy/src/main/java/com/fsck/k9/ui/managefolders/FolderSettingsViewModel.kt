@@ -157,6 +157,8 @@ class FolderSettingsViewModel(
         operation: FolderOperation,
         block: suspend () -> Outcome<Unit, FolderManagementError>,
     ) {
+        // A restored dialog can deliver its result before the folder settings were loaded, e.g. after process death.
+        if (!this::account.isInitialized || folderId == NO_FOLDER_ID) return
         if (operationInProgressLiveData.value == true) return
 
         operationInProgressLiveData.value = true
@@ -167,6 +169,8 @@ class FolderSettingsViewModel(
             )
 
             val updatedFolder = if (operation == FolderOperation.RENAME && event.isSuccess) {
+                // Reload the cached folder settings when the view is recreated, so they show the new name.
+                folderSettingsLiveData = null
                 folderManagementOptions = loadFolderManagementOptions(account, folderId)
                 folderDetailsRepository.loadFolderDetails(account, folderId)?.folder
             } else {
