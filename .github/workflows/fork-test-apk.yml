@@ -10,11 +10,12 @@
 #
 # Keep the keystore safe: Android only installs updates signed with the same key.
 #
-# Versioning follows the upstream values on the built branch:
-#   versionName = <upstream versionName>-fork.<run number>
-#   versionCode = <upstream versionCode> * 1000 + <local increment>
-# The local increment restarts at 1 whenever upstream bumps versionCode. It is derived from the
-# "(versionCode N)" in the titles of earlier fork pre-releases, so don't rename or delete those.
+# Versioning follows the upstream values on the built branch and this workflow's run number, so it is
+# deterministic (re-running a run produces the same version):
+#   versionName = <upstream versionName>-garyp.<run number>
+#   versionCode = <upstream versionCode> * 100000 + <run number>
+# This keeps increasing across upstream versionCode bumps for up to 99999 runs. Renaming this workflow file
+# resets the run number, which would produce lower versionCodes than already installed builds.
 name: Fork - Test APK
 
 on:
@@ -79,8 +80,6 @@ jobs:
       - name: Set version and application ID
         id: version
         env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
           RUN_NUMBER: ${{ github.run_number }}
         run: |
           BUILD_FILE=app-thunderbird/build.gradle.kts
@@ -92,20 +91,13 @@ jobs:
             exit 1
           fi
 
-          # Local increment: one more than the highest fork versionCode published for this upstream versionCode.
-          BASE=$((UPSTREAM_CODE * 1000))
-          LAST_CODE=$(gh release list --repo "$REPOSITORY" --limit 1000 --json name --jq '.[].name' \
-            | sed -n -E 's/.*\(versionCode ([0-9]+)\).*/\1/p' \
-            | awk -v lo="$BASE" -v hi="$((BASE + 999))" '$1 >= lo && $1 <= hi' \
-            | sort -n | tail -n 1)
-          INCREMENT=$(( ${LAST_CODE:-$BASE} - BASE + 1 ))
-          if (( INCREMENT > 999 )); then
-            echo "::error::More than 999 fork builds for upstream versionCode $UPSTREAM_CODE"
+          # Android's maximum versionCode is 2100000000
+          if (( RUN_NUMBER > 99999 || UPSTREAM_CODE > 20999 )); then
+            echo "::error::versionCode would overflow (upstream ${UPSTREAM_CODE}, run ${RUN_NUMBER})"
             exit 1
           fi
-
-          VERSION_CODE=$((BASE + INCREMENT))
-          SUFFIX="-fork.${RUN_NUMBER}"
+          VERSION_CODE=$((UPSTREAM_CODE * 100000 + RUN_NUMBER))
+          SUFFIX="-garyp.${RUN_NUMBER}"
           VERSION_NAME="${UPSTREAM_NAME}${SUFFIX}"
 
           sed -i -E "s/^( *versionCode = )[0-9]+/\1${VERSION_CODE}/" "$BUILD_FILE"
@@ -122,7 +114,7 @@ jobs:
             echo "upstream_code=${UPSTREAM_CODE}"
             echo "upstream_name=${UPSTREAM_NAME}"
           } >> "$GITHUB_OUTPUT"
-          echo "Upstream ${UPSTREAM_NAME} (${UPSTREAM_CODE}) -> fork ${VERSION_NAME} (${VERSION_CODE})"
+          echo "Upstream ${UPSTREAM_NAME} (${UPSTREAM_CODE}) -> ${VERSION_NAME} (${VERSION_CODE})"
 
       - name: Build fossDaily APK
         run: ./gradlew :app-thunderbird:assembleFossDaily -Pci=true
@@ -177,10 +169,17 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           COMMIT_SHA=$(git rev-parse HEAD)
+
+          # Re-running a run produces the same version, so replace the APK of an existing release.
+          if gh release view "${VERSION_NAME}" --repo "${REPOSITORY}" > /dev/null 2>&1; then
+            gh release upload "${VERSION_NAME}" --repo "${REPOSITORY}" --clobber uploads/*.apk
+            exit 0
+          fi
+
           gh release create "${VERSION_NAME}" \
             --repo "${REPOSITORY}" \
             --target "${COMMIT_SHA}" \
             --prerelease \
-            --title "Thunderbird fork test build ${VERSION_NAME} (versionCode ${VERSION_CODE})" \
-            --notes "Unofficial test build of \`${SOURCE_REF}\` (${COMMIT_SHA}). Upstream ${UPSTREAM_NAME} (${UPSTREAM_CODE}); application ID \`${APPLICATION_ID}\`. Built by ${RUN_URL}" \
+            --title "Thunderbird test build ${VERSION_NAME}" \
+            --notes "Unofficial test build of \`${SOURCE_REF}\` (${COMMIT_SHA}). versionCode ${VERSION_CODE}; upstream ${UPSTREAM_NAME} (${UPSTREAM_CODE}); application ID \`${APPLICATION_ID}\`. Built by ${RUN_URL}" \
             uploads/*.apk
