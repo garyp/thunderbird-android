@@ -20,6 +20,11 @@ public sealed interface FolderManagementError {
     public data object HasSubfolders : FolderManagementError
 
     /**
+     * The folder can't be moved to the chosen parent, e.g. because it's the folder itself or one of its subfolders.
+     */
+    public data object InvalidMoveTarget : FolderManagementError
+
+    /**
      * The operation isn't allowed for this folder, e.g. deleting a special folder or renaming the Inbox.
      */
     public data object NotAllowed : FolderManagementError

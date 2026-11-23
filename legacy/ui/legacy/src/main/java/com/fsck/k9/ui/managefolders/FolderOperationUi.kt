@@ -14,6 +14,7 @@ private const val MAX_SERVER_MESSAGE_LENGTH = 200
 enum class FolderOperation {
     CREATE,
     RENAME,
+    MOVE,
     DELETE,
 }
 
@@ -49,6 +50,7 @@ internal fun Fragment.showFolderOperationResult(event: FolderOperationEvent) {
         is FolderManagementError.InvalidName -> getInvalidNameMessage(error.error)
         FolderManagementError.AlreadyExists -> getString(R.string.folder_operation_error_already_exists)
         FolderManagementError.HasSubfolders -> getString(R.string.folder_operation_error_has_subfolders)
+        FolderManagementError.InvalidMoveTarget -> getString(R.string.folder_operation_error_invalid_move_target)
         FolderManagementError.NotAllowed, FolderManagementError.NotSupported -> {
             getString(R.string.folder_operation_error_not_allowed)
         }
@@ -64,6 +66,7 @@ private fun Fragment.getSuccessMessage(operation: FolderOperation): String {
     return when (operation) {
         FolderOperation.CREATE -> getString(R.string.folder_operation_created)
         FolderOperation.RENAME -> getString(R.string.folder_operation_renamed)
+        FolderOperation.MOVE -> getString(R.string.folder_operation_moved)
         FolderOperation.DELETE -> getString(R.string.folder_operation_deleted)
     }
 }

@@ -35,9 +35,16 @@ class ImapRemoteFolderRenamer(
         folderServerId: FolderServerId,
         newFolderServerId: FolderServerId,
         folderPathDelimiter: FolderPathDelimiter,
-    ): Outcome<Unit, RemoteFolderOperationError> = withContext(ioDispatcher) {
+    ): Outcome<FolderServerId, RemoteFolderOperationError> = withContext(ioDispatcher) {
         val oldName = folderServerId.serverId
         val newName = newFolderServerId.serverId
+        val prefixedOldName = withPrefix(oldName)
+        val prefixedNewName = withPrefix(newName)
+
+        // E.g. moving a folder to the top level when it already is a top-level folder below the namespace prefix
+        if (prefixedNewName == prefixedOldName) {
+            return@withContext Outcome.success(FolderServerId(prefixedOldName))
+        }
 
         try {
             // Servers keep subscriptions of names that no longer exist, so check them before renaming.
@@ -59,14 +66,12 @@ class ImapRemoteFolderRenamer(
                 newFolder.close()
             }
 
-            val prefixedOldName = withPrefix(oldName)
-            val prefixedNewName = withPrefix(newName)
             for (subscribedFolder in subscribedFolders) {
                 subscriptions.unsubscribe(subscribedFolder)
                 subscriptions.subscribe(prefixedNewName + withPrefix(subscribedFolder).removePrefix(prefixedOldName))
             }
 
-            Outcome.success(Unit)
+            Outcome.success(FolderServerId(prefixedNewName))
         } catch (e: ImapFolderOperationException) {
             logger.warn(TAG) { "Server refused to rename folder" }
             Outcome.failure(RemoteFolderOperationError.RejectedByServer(e.responseText))

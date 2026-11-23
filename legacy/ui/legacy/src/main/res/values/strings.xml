@@ -51,6 +51,10 @@
     <string name="choose_folder_title">Choose Folder</string>
     <string name="choose_folder_move_title">Move to…</string>
     <string name="choose_folder_copy_title">Copy to…</string>
+    <!-- Title of the screen to choose the new parent folder when moving a folder -->
+    <string name="choose_folder_move_folder_title">Move folder to…</string>
+    <!-- Entry on the "Move folder to…" screen to move the folder to the top level of the folder hierarchy -->
+    <string name="choose_folder_top_level">Top level</string>
 
     <string name="send_action">Send</string>
     <string name="empty_subject">Subject is empty, click again to send anyway</string>
@@ -562,6 +566,8 @@
     <!-- Menu item on the folder settings screen to create a new folder inside the current folder -->
     <string name="folder_settings_create_subfolder_action">New subfolder</string>
     <string name="folder_settings_rename_folder_action">Rename folder</string>
+    <!-- Menu item on the folder settings screen to move the folder (and its subfolders) to a different parent folder -->
+    <string name="folder_settings_move_folder_action">Move folder</string>
     <string name="folder_settings_delete_folder_action">Delete folder</string>
 
     <!-- Action on the "Manage folders" screen to create a new top-level folder on the server -->
@@ -581,8 +587,10 @@
     <string name="folder_operation_in_progress">Please wait…</string>
     <string name="folder_operation_created">Folder created</string>
     <string name="folder_operation_renamed">Folder renamed</string>
+    <string name="folder_operation_moved">Folder moved</string>
     <string name="folder_operation_deleted">Folder deleted</string>
     <string name="folder_operation_error_already_exists">A folder with this name already exists.</string>
+    <string name="folder_operation_error_invalid_move_target">A folder can\'t be moved into itself or one of its subfolders.</string>
     <string name="folder_operation_error_has_subfolders">This folder contains subfolders. Delete them first.</string>
     <string name="folder_operation_error_not_allowed">This folder can\'t be changed.</string>
     <string name="folder_operation_error_folder_not_found">The folder no longer exists.</string>

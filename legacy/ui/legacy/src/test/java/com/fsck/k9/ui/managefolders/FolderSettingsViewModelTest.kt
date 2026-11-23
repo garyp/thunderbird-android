@@ -76,6 +76,7 @@ class FolderSettingsViewModelTest : K9RobolectricTest() {
         // Assert
         assertThat(testSubject.showCreateSubfolderInMenu).isTrue()
         assertThat(testSubject.showRenameFolderInMenu).isTrue()
+        assertThat(testSubject.showMoveFolderInMenu).isTrue()
         assertThat(testSubject.showDeleteFolderInMenu).isFalse()
     }
 
@@ -123,6 +124,44 @@ class FolderSettingsViewModelTest : K9RobolectricTest() {
         )
         val action = actions.single() as Action.ShowFolderOperationResult
         assertThat(action.event).isEqualTo(FolderOperationEvent(FolderOperation.RENAME, error = null))
+        assertThat(action.updatedFolder).isEqualTo(FOLDER)
+    }
+
+    @Test
+    fun `showMoveFolderPicker() should exclude subfolders and offer the top level`() {
+        // Arrange
+        loadFolderSettings()
+        val actions = testSubject.getActionEvents().collect()
+
+        // Act
+        testSubject.showMoveFolderPicker()
+
+        // Assert
+        assertThat(actions).containsExactly(
+            Action.ShowMoveFolderPicker(
+                accountUuid = account.uuid,
+                folderId = FOLDER_ID,
+                excludedFolderIds = setOf(2L, 3L),
+                showTopLevel = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `onMoveFolder() should move folder and report updated folder`() {
+        // Arrange
+        loadFolderSettings()
+        val actions = testSubject.getActionEvents().collect()
+
+        // Act
+        testSubject.onMoveFolder(newParentFolderId = null)
+
+        // Assert
+        assertThat(folderManagementRepository.moveCalls).containsExactly(
+            FakeFolderManagementRepository.MoveCall(account.id, FOLDER_ID, newParentFolderId = null),
+        )
+        val action = actions.single() as Action.ShowFolderOperationResult
+        assertThat(action.event).isEqualTo(FolderOperationEvent(FolderOperation.MOVE, error = null))
         assertThat(action.updatedFolder).isEqualTo(FOLDER)
     }
 
@@ -197,7 +236,9 @@ class FolderSettingsViewModelTest : K9RobolectricTest() {
             folderPathDelimiter = "/",
             canCreateSubfolder = true,
             canRename = true,
+            canMove = true,
             canDelete = false,
+            subfolderIds = setOf(2L, 3L),
         )
     }
 }

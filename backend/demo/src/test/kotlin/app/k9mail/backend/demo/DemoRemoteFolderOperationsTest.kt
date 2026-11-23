@@ -73,7 +73,7 @@ class DemoRemoteFolderOperationsTest {
         val outcome = testSubject.rename(FolderServerId("nested"), FolderServerId("Renamed"), folderPathDelimiter = "/")
 
         // Assert
-        assertThat(outcome).isEqualTo(Outcome.success(Unit))
+        assertThat(outcome).isEqualTo(Outcome.success(FolderServerId("Renamed")))
         assertThat(demoStore.getFolderIds()).doesNotContain("nested")
         assertThat(demoStore.getFolderIds()).containsAll(
             "Renamed",
@@ -180,5 +180,40 @@ class DemoRemoteFolderOperationsTest {
         )
         assertThat(demoStore.getFolderIds()).containsExactlyInAnyOrder(*expectedServerIds)
         assertThat(backendStorage.getFolderServerIds()).containsExactlyInAnyOrder(*expectedServerIds)
+    }
+
+    @Test
+    fun `rename() to a different parent should move the folder and use the new parent's display name`() = runTest {
+        // Arrange
+        val testSubject = DemoRemoteFolderRenamer(demoStore)
+
+        // Act
+        val outcome = testSubject.rename(
+            FolderServerId("turing"),
+            FolderServerId("nested/turing"),
+            folderPathDelimiter = "/",
+        )
+
+        // Assert
+        assertThat(outcome).isEqualTo(Outcome.success(FolderServerId("nested/turing")))
+        assertThat(demoStore.getFolder("nested/turing")?.name).isEqualTo("Nested/Turing")
+        assertThat(demoStore.getFolder("turing")).isNull()
+    }
+
+    @Test
+    fun `rename() into its own subfolder should be rejected`() = runTest {
+        // Arrange
+        val testSubject = DemoRemoteFolderRenamer(demoStore)
+
+        // Act
+        val outcome = testSubject.rename(
+            FolderServerId("nested"),
+            FolderServerId("nested/nested_level_1/nested"),
+            folderPathDelimiter = "/",
+        )
+
+        // Assert
+        assertThat(outcome).isInstanceOf<Outcome.Failure<RemoteFolderOperationError>>()
+        assertThat(demoStore.getFolder("nested")).isNotNull()
     }
 }

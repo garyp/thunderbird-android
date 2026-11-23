@@ -83,6 +83,9 @@ class DefaultFolderManagementRepositoryTest {
     fun `getOptions() should allow everything for regular subfolder`() = runTest(testDispatcher) {
         // Arrange
         addFolder(id = 1, serverId = "Work/2026")
+        addFolder(id = 2, serverId = "Work/2026/Q1")
+        addFolder(id = 3, serverId = "Work/2026/Q1/Taxes")
+        addFolder(id = 4, serverId = "Work/20267")
 
         // Act
         val result = testSubject.getOptions(accountId, folderId = 1)
@@ -96,7 +99,9 @@ class DefaultFolderManagementRepositoryTest {
                     folderPathDelimiter = "/",
                     canCreateSubfolder = true,
                     canRename = true,
+                    canMove = true,
                     canDelete = true,
+                    subfolderIds = setOf(2L, 3L),
                 ),
             ),
         )
@@ -126,6 +131,7 @@ class DefaultFolderManagementRepositoryTest {
         // Assert
         assertThat(result.optionsOrNull()?.canCreateSubfolder).isEqualTo(true)
         assertThat(result.optionsOrNull()?.canRename).isEqualTo(false)
+        assertThat(result.optionsOrNull()?.canMove).isEqualTo(false)
         assertThat(result.optionsOrNull()?.canDelete).isEqualTo(false)
     }
 
@@ -398,6 +404,140 @@ class DefaultFolderManagementRepositoryTest {
 
         // Assert
         assertThat(result).isEqualTo(Outcome.failure(FolderManagementError.Failed))
+    }
+
+    @Test
+    fun `move() should move folder and subfolders below the new parent`() = runTest(testDispatcher) {
+        // Arrange
+        addFolder(id = 1, serverId = "internet")
+        addFolder(id = 2, serverId = "internet/online_orders")
+        addFolder(id = 3, serverId = "internet/online_orders/2026")
+        addFolder(id = 4, serverId = "shopping")
+
+        // Act
+        val result = testSubject.move(accountId, folderId = 2, newParentFolderId = 4)
+
+        // Assert
+        assertThat(result).isEqualTo(Outcome.success(Unit))
+        assertThat(remoteFolderOperations.renamedFolders)
+            .containsExactly("internet/online_orders" to "shopping/online_orders")
+        assertThat(localFolders.keys).containsExactlyInAnyOrder(
+            "internet",
+            "shopping",
+            "shopping/online_orders",
+            "shopping/online_orders/2026",
+        )
+    }
+
+    @Test
+    fun `move() to the top level should use the server ID reported by the server`() = runTest(testDispatcher) {
+        // Arrange
+        addFolder(id = 1, serverId = "INBOX/internet")
+        addFolder(id = 2, serverId = "INBOX/internet/online_orders")
+        remoteFolderOperations.renamedServerId = { "INBOX/$it" }
+
+        // Act
+        val result = testSubject.move(accountId, folderId = 2, newParentFolderId = null)
+
+        // Assert
+        assertThat(result).isEqualTo(Outcome.success(Unit))
+        assertThat(remoteFolderOperations.renamedFolders)
+            .containsExactly("INBOX/internet/online_orders" to "online_orders")
+        assertThat(localFolders.keys).containsExactlyInAnyOrder("INBOX/internet", "INBOX/online_orders")
+    }
+
+    @Test
+    fun `move() into a subfolder should return InvalidMoveTarget`() = runTest(testDispatcher) {
+        // Arrange
+        addFolder(id = 1, serverId = "internet")
+        addFolder(id = 2, serverId = "internet/online_orders")
+
+        // Act
+        val result = testSubject.move(accountId, folderId = 1, newParentFolderId = 2)
+
+        // Assert
+        assertThat(result).isEqualTo(Outcome.failure(FolderManagementError.InvalidMoveTarget))
+        assertThat(remoteFolderOperations.renamedFolders).isEmpty()
+    }
+
+    @Test
+    fun `move() into the folder itself should return InvalidMoveTarget`() = runTest(testDispatcher) {
+        // Arrange
+        addFolder(id = 1, serverId = "internet")
+
+        // Act
+        val result = testSubject.move(accountId, folderId = 1, newParentFolderId = 1)
+
+        // Assert
+        assertThat(result).isEqualTo(Outcome.failure(FolderManagementError.InvalidMoveTarget))
+    }
+
+    @Test
+    fun `move() to the current parent should not contact server`() = runTest(testDispatcher) {
+        // Arrange
+        addFolder(id = 1, serverId = "internet")
+        addFolder(id = 2, serverId = "internet/online_orders")
+
+        // Act
+        val result = testSubject.move(accountId, folderId = 2, newParentFolderId = 1)
+
+        // Assert
+        assertThat(result).isEqualTo(Outcome.success(Unit))
+        assertThat(remoteFolderOperations.renamedFolders).isEmpty()
+    }
+
+    @Test
+    fun `move() to a parent that already contains the name should return AlreadyExists`() = runTest(testDispatcher) {
+        // Arrange
+        addFolder(id = 1, serverId = "internet/online_orders")
+        addFolder(id = 2, serverId = "shopping")
+        addFolder(id = 3, serverId = "shopping/online_orders")
+
+        // Act
+        val result = testSubject.move(accountId, folderId = 1, newParentFolderId = 2)
+
+        // Assert
+        assertThat(result).isEqualTo(Outcome.failure(FolderManagementError.AlreadyExists))
+    }
+
+    @Test
+    fun `move() of Inbox should return NotAllowed`() = runTest(testDispatcher) {
+        // Arrange
+        addFolder(id = 1, serverId = "INBOX", type = FolderType.INBOX)
+        addFolder(id = 2, serverId = "Archive")
+
+        // Act
+        val result = testSubject.move(accountId, folderId = 1, newParentFolderId = 2)
+
+        // Assert
+        assertThat(result).isEqualTo(Outcome.failure(FolderManagementError.NotAllowed))
+    }
+
+    @Test
+    fun `move() below a local-only folder should return NotAllowed`() = runTest(testDispatcher) {
+        // Arrange
+        addFolder(id = 1, serverId = "Work")
+        addFolder(id = 2, serverId = "K9MAIL_INTERNAL_OUTBOX", type = FolderType.OUTBOX, isLocalOnly = true)
+
+        // Act
+        val result = testSubject.move(accountId, folderId = 1, newParentFolderId = 2)
+
+        // Assert
+        assertThat(result).isEqualTo(Outcome.failure(FolderManagementError.NotAllowed))
+    }
+
+    @Test
+    fun `move() of a subfolder named Inbox to the top level should return RESERVED_NAME`() = runTest(testDispatcher) {
+        // Arrange
+        addFolder(id = 1, serverId = "Old/Inbox")
+
+        // Act
+        val result = testSubject.move(accountId, folderId = 1, newParentFolderId = null)
+
+        // Assert
+        assertThat(result).isEqualTo(
+            Outcome.failure(FolderManagementError.InvalidName(FolderNameError.RESERVED_NAME)),
+        )
     }
 
     private suspend fun usePop3Account() {

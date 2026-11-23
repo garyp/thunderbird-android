@@ -23,7 +23,7 @@ class ImapRemoteFolderRenamerTest {
         val outcome = testSubject.rename(FolderServerId("Old"), FolderServerId("New"), folderPathDelimiter = "/")
 
         // Assert
-        assertThat(outcome).isEqualTo(Outcome.success(Unit))
+        assertThat(outcome).isEqualTo(Outcome.success(FolderServerId("New")))
         assertThat(server.mailboxes).containsExactlyInAnyOrder(
             "INBOX",
             "New",
@@ -85,7 +85,7 @@ class ImapRemoteFolderRenamerTest {
         val outcome = testSubject.rename(FolderServerId("Old"), FolderServerId("New"), folderPathDelimiter = "/")
 
         // Assert
-        assertThat(outcome).isEqualTo(Outcome.success(Unit))
+        assertThat(outcome).isEqualTo(Outcome.success(FolderServerId("New")))
         assertThat(server.mailboxes).containsExactlyInAnyOrder("INBOX", "New")
     }
 
@@ -105,7 +105,7 @@ class ImapRemoteFolderRenamerTest {
         )
 
         // Assert
-        assertThat(outcome).isEqualTo(Outcome.success(Unit))
+        assertThat(outcome).isEqualTo(Outcome.success(FolderServerId("INBOX/Projects")))
         assertThat(prefixedServer.mailboxes).containsExactlyInAnyOrder("INBOX", "INBOX/Projects", "INBOX/Projects/2026")
         assertThat(prefixedServer.subscriptions).containsExactlyInAnyOrder("INBOX/Projects", "INBOX/Projects/2026")
     }
@@ -120,7 +120,64 @@ class ImapRemoteFolderRenamerTest {
         val outcome = testSubject.rename(FolderServerId("work"), FolderServerId("Work"), folderPathDelimiter = "/")
 
         // Assert
-        assertThat(outcome).isEqualTo(Outcome.success(Unit))
+        assertThat(outcome).isEqualTo(Outcome.success(FolderServerId("Work")))
         assertThat(server.mailboxes).containsExactlyInAnyOrder("INBOX", "Work")
+    }
+
+    @Test
+    fun `rename() to a different parent should move the folder and return its new server ID`() = runTest {
+        // Arrange
+        server.mailboxes += listOf("internet", "internet/online_orders", "shopping")
+
+        // Act
+        val outcome = testSubject.rename(
+            FolderServerId("internet/online_orders"),
+            FolderServerId("shopping/online_orders"),
+            folderPathDelimiter = "/",
+        )
+
+        // Assert
+        assertThat(outcome).isEqualTo(Outcome.success(FolderServerId("shopping/online_orders")))
+        assertThat(
+            server.mailboxes,
+        ).containsExactlyInAnyOrder("INBOX", "internet", "shopping", "shopping/online_orders")
+    }
+
+    @Test
+    fun `rename() to the top level with namespace prefix should return the prefixed server ID`() = runTest {
+        // Arrange
+        val prefixedServer = FakeImapServer(combinedPrefix = "INBOX/")
+        prefixedServer.mailboxes += listOf("INBOX/internet", "INBOX/internet/online_orders")
+        val testSubject = ImapRemoteFolderRenamer(TestLogger(), prefixedServer)
+
+        // Act
+        val outcome = testSubject.rename(
+            FolderServerId("INBOX/internet/online_orders"),
+            FolderServerId("online_orders"),
+            folderPathDelimiter = "/",
+        )
+
+        // Assert
+        assertThat(outcome).isEqualTo(Outcome.success(FolderServerId("INBOX/online_orders")))
+        assertThat(prefixedServer.mailboxes).containsExactlyInAnyOrder("INBOX", "INBOX/internet", "INBOX/online_orders")
+    }
+
+    @Test
+    fun `rename() to the same prefixed name should succeed without contacting the server`() = runTest {
+        // Arrange
+        val prefixedServer = FakeImapServer(combinedPrefix = "INBOX/")
+        prefixedServer.mailboxes += "INBOX/Work"
+        prefixedServer.refuseRenameWith = "should not be called"
+        val testSubject = ImapRemoteFolderRenamer(TestLogger(), prefixedServer)
+
+        // Act
+        val outcome = testSubject.rename(
+            FolderServerId("INBOX/Work"),
+            FolderServerId("Work"),
+            folderPathDelimiter = "/",
+        )
+
+        // Assert
+        assertThat(outcome).isEqualTo(Outcome.success(FolderServerId("INBOX/Work")))
     }
 }

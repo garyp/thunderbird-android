@@ -14,7 +14,10 @@ import net.thunderbird.feature.account.AccountId
 import net.thunderbird.feature.mail.folder.FolderType
 import net.thunderbird.feature.mail.folder.api.Folder
 import net.thunderbird.feature.mail.folder.api.FolderManagementOptions
+import net.thunderbird.feature.mail.folder.api.FolderNameError
 import net.thunderbird.feature.mail.folder.api.FolderNameValidator
+import net.thunderbird.feature.mail.folder.api.FolderPathDelimiter
+import net.thunderbird.feature.mail.folder.api.RemoteFolder
 import net.thunderbird.feature.mail.folder.api.data.FolderError
 import net.thunderbird.feature.mail.folder.api.data.FolderManagementError
 import net.thunderbird.feature.mail.folder.api.data.repository.FolderManagementRepository
@@ -53,6 +56,10 @@ internal class DefaultFolderManagementRepository(
         val folder = findFolder(accountId, folderId) ?: return@performOperation notFound()
         val serverId = findFolderServerId(accountId, folderId) ?: return@performOperation notFound()
         val delimiter = account.folderPathDelimiter
+        val subfolderIds = getRemoteFolders(accountId)
+            .filter { FolderServerIdHelper.isSubfolder(it.serverId, serverId, delimiter) }
+            .map { it.id }
+            .toSet()
 
         Outcome.success(
             FolderManagementOptions(
@@ -61,7 +68,9 @@ internal class DefaultFolderManagementRepository(
                 folderPathDelimiter = delimiter,
                 canCreateSubfolder = canCreateSubfolder(folder),
                 canRename = canRename(folder, serverId),
+                canMove = canMove(folder, serverId, delimiter),
                 canDelete = canDelete(folder),
+                subfolderIds = subfolderIds,
             ),
         )
     }
@@ -116,6 +125,46 @@ internal class DefaultFolderManagementRepository(
         }
     }
 
+    override suspend fun move(
+        accountId: AccountId,
+        folderId: Long,
+        newParentFolderId: Long?,
+    ): Outcome<Unit, FolderManagementError> = performOperation(accountId) { account ->
+        val delimiter = account.folderPathDelimiter
+        val folder = findFolder(accountId, folderId) ?: return@performOperation notFound()
+        val serverId = findFolderServerId(accountId, folderId) ?: return@performOperation notFound()
+        if (!canMove(folder, serverId, delimiter)) return@performOperation notAllowed()
+
+        val newParentServerId = newParentFolderId?.let { parentFolderId ->
+            val parentFolder = findFolder(accountId, parentFolderId) ?: return@performOperation notFound()
+            if (!canCreateSubfolder(parentFolder)) return@performOperation notAllowed()
+
+            findFolderServerId(accountId, parentFolderId) ?: return@performOperation notFound()
+        }
+
+        val newServerId = FolderServerIdHelper.buildServerId(
+            parentServerId = newParentServerId,
+            name = FolderServerIdHelper.getName(serverId, delimiter),
+            folderPathDelimiter = delimiter,
+        )
+
+        when {
+            newServerId == serverId -> Outcome.success(Unit)
+
+            newParentServerId != null && isSameOrSubfolder(newParentServerId, serverId, delimiter) -> {
+                Outcome.failure(FolderManagementError.InvalidMoveTarget)
+            }
+
+            newParentServerId == null && newServerId.equals(INBOX, ignoreCase = true) -> {
+                Outcome.failure(FolderManagementError.InvalidName(FolderNameError.RESERVED_NAME))
+            }
+
+            folderExists(accountId, newServerId) -> Outcome.failure(FolderManagementError.AlreadyExists)
+
+            else -> folderHierarchyUpdater.rename(accountId, serverId, newServerId, delimiter)
+        }
+    }
+
     override suspend fun delete(
         accountId: AccountId,
         folderId: Long,
@@ -141,6 +190,15 @@ internal class DefaultFolderManagementRepository(
         return !folder.isLocalOnly && folder.type != FolderType.INBOX && !serverId.equals(INBOX, ignoreCase = true)
     }
 
+    private fun canMove(folder: Folder, serverId: String, delimiter: FolderPathDelimiter): Boolean {
+        // Without a hierarchy delimiter, the server doesn't support subfolders.
+        return canRename(folder, serverId) && delimiter.isNotEmpty()
+    }
+
+    private fun isSameOrSubfolder(serverId: String, folderServerId: String, delimiter: FolderPathDelimiter): Boolean {
+        return serverId == folderServerId || FolderServerIdHelper.isSubfolder(serverId, folderServerId, delimiter)
+    }
+
     private fun canDelete(folder: Folder): Boolean = !folder.isLocalOnly && folder.type == FolderType.REGULAR
 
     private suspend fun findFolder(accountId: AccountId, folderId: Long): Folder? {
@@ -151,8 +209,12 @@ internal class DefaultFolderManagementRepository(
         return folderQueryRepository.findFolderServerIdById(accountId, folderId).getOrThrow()?.serverId
     }
 
+    private suspend fun getRemoteFolders(accountId: AccountId): List<RemoteFolder> {
+        return remoteFolderQueryRepository.getAllByAccountId(accountId).getOrThrow()
+    }
+
     private suspend fun getRemoteFolderServerIds(accountId: AccountId): List<String> {
-        return remoteFolderQueryRepository.getAllByAccountId(accountId).getOrThrow().map { it.serverId }
+        return getRemoteFolders(accountId).map { it.serverId }
     }
 
     private suspend fun folderExists(accountId: AccountId, serverId: String): Boolean {

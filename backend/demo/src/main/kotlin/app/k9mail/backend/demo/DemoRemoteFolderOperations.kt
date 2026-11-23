@@ -59,7 +59,7 @@ internal class DemoRemoteFolderRenamer(
         folderServerId: FolderServerId,
         newFolderServerId: FolderServerId,
         folderPathDelimiter: FolderPathDelimiter,
-    ): Outcome<Unit, RemoteFolderOperationError> {
+    ): Outcome<FolderServerId, RemoteFolderOperationError> {
         val oldName = folderServerId.serverId
         val newServerId = newFolderServerId.serverId
         val folder = demoStore.getFolder(oldName)
@@ -73,16 +73,20 @@ internal class DemoRemoteFolderRenamer(
 
             demoStore.getFolder(newServerId) != null -> Outcome.failure(RemoteFolderOperationError.AlreadyExists)
 
+            newServerId.startsWith(oldName + folderPathDelimiter) -> {
+                Outcome.failure(RemoteFolderOperationError.RejectedByServer("Can't move a mailbox into itself"))
+            }
+
             else -> {
                 demoStore.renameFolders(buildRenameMapping(oldName, folder.name, newServerId, folderPathDelimiter))
-                Outcome.success(Unit)
+                Outcome.success(FolderServerId(newServerId))
             }
         }
     }
 
     /**
-     * Like an IMAP server, rename all subfolders along with the folder. Display names keep the parent's display name
-     * (e.g. "Archive" instead of the server ID "archive") and use the new name chosen by the user as the last segment.
+     * Like an IMAP server, rename all subfolders along with the folder. Display names use the new parent's display name
+     * (e.g. "Archive" instead of the server ID "archive") and the new name chosen by the user as the last segment.
      */
     private fun buildRenameMapping(
         folderServerId: String,
@@ -90,8 +94,16 @@ internal class DemoRemoteFolderRenamer(
         newFolderServerId: String,
         folderPathDelimiter: FolderPathDelimiter,
     ): Map<String, Pair<String, String>> {
-        val newLeafName = newFolderServerId.substringAfterLast(folderPathDelimiter)
-        val parentName = folderName.substringBeforeLast(folderPathDelimiter, missingDelimiterValue = "")
+        // When the folder is only moved, keep its display name (e.g. "Turing" for the server ID "turing").
+        val newLeafServerId = newFolderServerId.substringAfterLast(folderPathDelimiter)
+        val isMoveOnly = newLeafServerId == folderServerId.substringAfterLast(folderPathDelimiter)
+        val newLeafName = if (isMoveOnly) folderName.substringAfterLast(folderPathDelimiter) else newLeafServerId
+        val newParentServerId = newFolderServerId.substringBeforeLast(folderPathDelimiter, missingDelimiterValue = "")
+        val parentName = if (newParentServerId.isEmpty()) {
+            ""
+        } else {
+            demoStore.getFolder(newParentServerId)?.name ?: newParentServerId
+        }
         val newName = if (parentName.isEmpty()) newLeafName else "$parentName$folderPathDelimiter$newLeafName"
 
         val subfolderPrefix = folderServerId + folderPathDelimiter

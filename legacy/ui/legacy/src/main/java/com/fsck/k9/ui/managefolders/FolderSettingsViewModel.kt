@@ -50,6 +50,9 @@ class FolderSettingsViewModel(
     val showRenameFolderInMenu: Boolean
         get() = folderManagementOptions?.canRename == true
 
+    val showMoveFolderInMenu: Boolean
+        get() = folderManagementOptions?.canMove == true
+
     val showDeleteFolderInMenu: Boolean
         get() = folderManagementOptions?.canDelete == true
 
@@ -141,6 +144,27 @@ class FolderSettingsViewModel(
         }
     }
 
+    fun showMoveFolderPicker() {
+        val options = folderManagementOptions ?: return
+        sendActionEvent(
+            Action.ShowMoveFolderPicker(
+                accountUuid = account.uuid,
+                folderId = folderId,
+                excludedFolderIds = options.subfolderIds,
+                showTopLevel = !options.isTopLevel,
+            ),
+        )
+    }
+
+    /**
+     * @param newParentFolderId The ID of the new parent folder, or `null` to move the folder to the top level.
+     */
+    fun onMoveFolder(newParentFolderId: Long?) {
+        performFolderOperation(FolderOperation.MOVE) {
+            folderManagementRepository.move(account.id, folderId, newParentFolderId)
+        }
+    }
+
     fun onRenameFolder(newName: String) {
         performFolderOperation(FolderOperation.RENAME) {
             folderManagementRepository.rename(account.id, folderId, newName)
@@ -168,7 +192,8 @@ class FolderSettingsViewModel(
                 error = block().fold(onSuccess = { null }, onFailure = { it }),
             )
 
-            val updatedFolder = if (operation == FolderOperation.RENAME && event.isSuccess) {
+            val changesName = operation == FolderOperation.RENAME || operation == FolderOperation.MOVE
+            val updatedFolder = if (changesName && event.isSuccess) {
                 // Reload the cached folder settings when the view is recreated, so they show the new name.
                 folderSettingsLiveData = null
                 folderManagementOptions = loadFolderManagementOptions(account, folderId)
@@ -198,6 +223,12 @@ data class FolderSettingsData(val folder: Folder, val dataStore: FolderSettingsD
 sealed class Action {
     object ShowClearFolderConfirmationDialog : Action()
     data class ShowCreateSubfolderDialog(val folderPathDelimiter: String) : Action()
+    data class ShowMoveFolderPicker(
+        val accountUuid: String,
+        val folderId: Long,
+        val excludedFolderIds: Set<Long>,
+        val showTopLevel: Boolean,
+    ) : Action()
     data class ShowRenameFolderDialog(
         val currentName: String,
         val folderPathDelimiter: String,

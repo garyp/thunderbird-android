@@ -14,6 +14,7 @@ internal class FakeFolderManagementRepository(
     val createCalls = mutableListOf<CreateCall>()
     val renameCalls = mutableListOf<RenameCall>()
     val deleteCalls = mutableListOf<DeleteCall>()
+    val moveCalls = mutableListOf<MoveCall>()
 
     override suspend fun isSupported(accountId: AccountId): Boolean = isSupported
 
@@ -42,6 +43,15 @@ internal class FakeFolderManagementRepository(
         return outcome
     }
 
+    override suspend fun move(
+        accountId: AccountId,
+        folderId: Long,
+        newParentFolderId: Long?,
+    ): Outcome<Unit, FolderManagementError> {
+        moveCalls.add(MoveCall(accountId, folderId, newParentFolderId))
+        return outcome
+    }
+
     override suspend fun delete(accountId: AccountId, folderId: Long): Outcome<Unit, FolderManagementError> {
         deleteCalls.add(DeleteCall(accountId, folderId))
         return outcome
@@ -49,5 +59,6 @@ internal class FakeFolderManagementRepository(
 
     data class CreateCall(val accountId: AccountId, val parentFolderId: Long?, val name: String)
     data class RenameCall(val accountId: AccountId, val folderId: Long, val newName: String)
+    data class MoveCall(val accountId: AccountId, val folderId: Long, val newParentFolderId: Long?)
     data class DeleteCall(val accountId: AccountId, val folderId: Long)
 }

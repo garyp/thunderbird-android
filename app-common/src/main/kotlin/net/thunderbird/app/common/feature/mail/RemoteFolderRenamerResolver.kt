@@ -42,7 +42,7 @@ internal object NoOpRemoteFolderRenamer : RemoteFolderRenamer {
         folderServerId: FolderServerId,
         newFolderServerId: FolderServerId,
         folderPathDelimiter: FolderPathDelimiter,
-    ): Outcome<Unit, RemoteFolderOperationError> {
+    ): Outcome<FolderServerId, RemoteFolderOperationError> {
         return Outcome.failure(RemoteFolderOperationError.NotSupportedOperation)
     }
 }

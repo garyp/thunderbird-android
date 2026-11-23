@@ -39,6 +39,8 @@ class ChooseFolderActivity : BaseActivity() {
     private lateinit var account: LegacyAccountDto
     private lateinit var action: Action
     private var currentFolderId: Long? = null
+    private var excludedFolderIds: Set<Long> = emptySet()
+    private var showTopLevel = false
     private var scrollToFolderId: Long? = null
     private var messageReference: String? = null
 
@@ -54,6 +56,7 @@ class ChooseFolderActivity : BaseActivity() {
         when (action) {
             Action.MOVE -> setTitle(R.string.choose_folder_move_title)
             Action.COPY -> setTitle(R.string.choose_folder_copy_title)
+            Action.CHOOSE_PARENT -> setTitle(R.string.choose_folder_move_folder_title)
             else -> setTitle(R.string.choose_folder_title)
         }
 
@@ -78,6 +81,8 @@ class ChooseFolderActivity : BaseActivity() {
 
         messageReference = intent.getStringExtra(EXTRA_MESSAGE_REFERENCE)
         currentFolderId = intent.getLongExtraOrNull(EXTRA_CURRENT_FOLDER_ID)
+        excludedFolderIds = intent.getLongArrayExtra(EXTRA_EXCLUDED_FOLDER_IDS)?.toSet().orEmpty()
+        showTopLevel = intent.getBooleanExtra(EXTRA_SHOW_TOP_LEVEL, false)
 
         scrollToFolderId = if (savedInstanceState != null) {
             savedInstanceState.getLongOrNull(STATE_SCROLL_TO_FOLDER_ID)
@@ -114,6 +119,7 @@ class ChooseFolderActivity : BaseActivity() {
         val folderListItems = displayFolders.asSequence()
             .filterNot { it.folder.type == FolderType.OUTBOX }
             .filterNot { it.folder.id == currentFolderId }
+            .filterNot { it.folder.id in excludedFolderIds }
             .map { displayFolder ->
                 val databaseId = displayFolder.folder.id
                 val folderIconResource = folderIconProvider.getFolderIcon(displayFolder.folder.type)
@@ -122,10 +128,19 @@ class ChooseFolderActivity : BaseActivity() {
                 FolderListItem(databaseId, folderIconResource, displayName)
             }
             .toList()
+            .let { items -> if (showTopLevel) listOf(createTopLevelItem()) + items else items }
 
         itemAdapter.set(folderListItems)
 
         scrollToFolder(folderListItems)
+    }
+
+    private fun createTopLevelItem(): FolderListItem {
+        return FolderListItem(
+            databaseId = TOP_LEVEL_ID,
+            folderIconResource = folderIconProvider.getFolderIcon(FolderType.REGULAR),
+            displayName = getString(R.string.choose_folder_top_level),
+        )
     }
 
     private fun scrollToFolder(folders: List<FolderListItem>) {
@@ -197,7 +212,11 @@ class ChooseFolderActivity : BaseActivity() {
 
     private fun returnResult(folderId: Long, displayName: String) {
         val result = Intent().apply {
-            putExtra(RESULT_SELECTED_FOLDER_ID, folderId)
+            if (folderId == TOP_LEVEL_ID) {
+                putExtra(RESULT_TOP_LEVEL, true)
+            } else {
+                putExtra(RESULT_SELECTED_FOLDER_ID, folderId)
+            }
             putExtra(RESULT_FOLDER_DISPLAY_NAME, displayName)
             putExtra(RESULT_MESSAGE_REFERENCE, messageReference)
         }
@@ -234,6 +253,11 @@ class ChooseFolderActivity : BaseActivity() {
         MOVE,
         COPY,
         CHOOSE,
+
+        /**
+         * Choose the new parent of a folder that is moved. Offers a "Top level" entry if requested.
+         */
+        CHOOSE_PARENT,
     }
 
     companion object {
@@ -243,9 +267,13 @@ class ChooseFolderActivity : BaseActivity() {
         private const val EXTRA_CURRENT_FOLDER_ID = "currentFolderId"
         private const val EXTRA_SCROLL_TO_FOLDER_ID = "scrollToFolderId"
         private const val EXTRA_MESSAGE_REFERENCE = "messageReference"
+        private const val EXTRA_EXCLUDED_FOLDER_IDS = "excludedFolderIds"
+        private const val EXTRA_SHOW_TOP_LEVEL = "showTopLevel"
+        private const val TOP_LEVEL_ID = -1L
         const val RESULT_SELECTED_FOLDER_ID = "selectedFolderId"
         const val RESULT_FOLDER_DISPLAY_NAME = "folderDisplayName"
         const val RESULT_MESSAGE_REFERENCE = "messageReference"
+        const val RESULT_TOP_LEVEL = "topLevel"
 
         @JvmStatic
         fun buildLaunchIntent(
@@ -255,6 +283,8 @@ class ChooseFolderActivity : BaseActivity() {
             currentFolderId: Long? = null,
             scrollToFolderId: Long? = null,
             messageReference: MessageReference? = null,
+            excludedFolderIds: Set<Long> = emptySet(),
+            showTopLevel: Boolean = false,
         ): Intent {
             return Intent(context, ChooseFolderActivity::class.java).apply {
                 this.action = action.toString()
@@ -262,6 +292,8 @@ class ChooseFolderActivity : BaseActivity() {
                 currentFolderId?.let { putExtra(EXTRA_CURRENT_FOLDER_ID, currentFolderId) }
                 scrollToFolderId?.let { putExtra(EXTRA_SCROLL_TO_FOLDER_ID, scrollToFolderId) }
                 messageReference?.let { putExtra(EXTRA_MESSAGE_REFERENCE, it.toIdentityString()) }
+                if (excludedFolderIds.isNotEmpty()) putExtra(EXTRA_EXCLUDED_FOLDER_IDS, excludedFolderIds.toLongArray())
+                putExtra(EXTRA_SHOW_TOP_LEVEL, showTopLevel)
             }
         }
     }

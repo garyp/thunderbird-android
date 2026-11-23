@@ -69,13 +69,13 @@ internal class FolderHierarchyUpdater(
         )
 
         return outcome.fold(
-            onSuccess = {
+            onSuccess = { renamedFolderServerId ->
                 // Mirror the rename locally, so locally stored messages and folder settings are retained.
                 updateLocalFolders(accountId) { backendStorage ->
                     val renamedFolders = buildRenameMapping(
                         localFolderServerIds = backendStorage.getFolderServerIds(),
                         folderServerId = folderServerId,
-                        newFolderServerId = newFolderServerId,
+                        newFolderServerId = renamedFolderServerId.serverId,
                         folderPathDelimiter = folderPathDelimiter,
                     )
 
@@ -126,7 +126,7 @@ internal class FolderHierarchyUpdater(
             localFolderServerIds
                 .filter { FolderServerIdHelper.isSubfolder(it, folderServerId, folderPathDelimiter) }
                 .forEach { serverId -> put(serverId, newFolderServerId + serverId.removePrefix(folderServerId)) }
-        }
+        }.filter { (oldServerId, newServerId) -> oldServerId != newServerId }
     }
 
     /**

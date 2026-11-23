@@ -11,6 +11,7 @@ import net.thunderbird.backend.api.folder.RemoteFolderDeleter
 import net.thunderbird.backend.api.folder.RemoteFolderOperationError
 import net.thunderbird.backend.api.folder.RemoteFolderRenamer
 import net.thunderbird.components.core.outcome.Outcome
+import net.thunderbird.components.core.outcome.fold
 import net.thunderbird.feature.account.AccountId
 import net.thunderbird.feature.mail.folder.api.Folder
 import net.thunderbird.feature.mail.folder.api.FolderPathDelimiter
@@ -62,6 +63,11 @@ internal class FakeBackendStorageFactory(
 ) : BackendStorageFactory {
     var exception: Exception? = null
 
+    /**
+     * Maps the requested new server ID to the server ID the server reports, e.g. to add a namespace prefix.
+     */
+    var renamedServerId: (String) -> String = { it }
+
     override fun createBackendStorage(accountId: AccountId): BackendStorage {
         exception?.let { throw it }
         return backendStorage
@@ -80,6 +86,11 @@ internal class FakeRemoteFolderOperations :
         Outcome.success(RemoteFolderCreationOutcome.Success.Created)
     var operationOutcome: Outcome<Unit, RemoteFolderOperationError> = Outcome.success(Unit)
     var exception: Exception? = null
+
+    /**
+     * Maps the requested new server ID to the server ID the server reports, e.g. to add a namespace prefix.
+     */
+    var renamedServerId: (String) -> String = { it }
 
     val createdFolders = mutableListOf<String>()
     val renamedFolders = mutableListOf<Pair<String, String>>()
@@ -100,9 +111,12 @@ internal class FakeRemoteFolderOperations :
         folderServerId: FolderServerId,
         newFolderServerId: FolderServerId,
         folderPathDelimiter: FolderPathDelimiter,
-    ): Outcome<Unit, RemoteFolderOperationError> {
+    ): Outcome<FolderServerId, RemoteFolderOperationError> {
         renamedFolders.add(folderServerId.serverId to newFolderServerId.serverId)
-        return operationOutcome
+        return operationOutcome.fold(
+            onSuccess = { Outcome.success(FolderServerId(renamedServerId(newFolderServerId.serverId))) },
+            onFailure = { Outcome.failure(it) },
+        )
     }
 
     override suspend fun delete(folderServerId: FolderServerId): Outcome<Unit, RemoteFolderOperationError> {

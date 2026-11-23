@@ -49,6 +49,16 @@ public interface FolderManagementRepository {
     ): Outcome<Unit, FolderManagementError>
 
     /**
+     * Moves the folder with the given [folderId] below the folder with the ID [newParentFolderId], or to the top level
+     * if [newParentFolderId] is `null`. The folder keeps its name. Subfolders are moved along with it.
+     */
+    public suspend fun move(
+        accountId: AccountId,
+        folderId: Long,
+        newParentFolderId: Long?,
+    ): Outcome<Unit, FolderManagementError>
+
+    /**
      * Deletes the folder with the given [folderId], including locally stored messages.
      */
     public suspend fun delete(

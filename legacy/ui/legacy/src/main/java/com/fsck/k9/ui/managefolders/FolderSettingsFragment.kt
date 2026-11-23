@@ -15,6 +15,7 @@ import com.fsck.k9.fragment.ConfirmationDialogFragment
 import com.fsck.k9.fragment.ConfirmationDialogFragment.ConfirmationDialogFragmentListener
 import com.fsck.k9.ui.R
 import com.fsck.k9.ui.base.livedata.observeNotNull
+import com.fsck.k9.ui.choosefolder.ChooseParentFolderResultContract
 import com.takisoft.preferencex.PreferenceFragmentCompat
 import net.thunderbird.feature.mail.folder.api.Folder
 import org.koin.android.ext.android.inject
@@ -24,6 +25,10 @@ import com.fsck.k9.ui.base.R as BaseR
 class FolderSettingsFragment : PreferenceFragmentCompat(), ConfirmationDialogFragmentListener {
     private val viewModel: FolderSettingsViewModel by viewModel()
     private val folderNameFormatter: FolderNameFormatter by inject()
+
+    private val chooseParentFolderLauncher = registerForActivityResult(ChooseParentFolderResultContract()) { result ->
+        result?.let { viewModel.onMoveFolder(it.parentFolderId) }
+    }
 
     override fun onCreatePreferencesFix(savedInstanceState: Bundle?, rootKey: String?) {
         // Set empty preferences resource while data is being loaded
@@ -44,6 +49,7 @@ class FolderSettingsFragment : PreferenceFragmentCompat(), ConfirmationDialogFra
 
                     menu.findItem(R.id.create_subfolder).isVisible = viewModel.showCreateSubfolderInMenu
                     menu.findItem(R.id.rename_folder).isVisible = viewModel.showRenameFolderInMenu
+                    menu.findItem(R.id.move_folder).isVisible = viewModel.showMoveFolderInMenu
                     menu.findItem(R.id.delete_folder).isVisible = viewModel.showDeleteFolderInMenu
                 }
 
@@ -55,6 +61,10 @@ class FolderSettingsFragment : PreferenceFragmentCompat(), ConfirmationDialogFra
                         }
                         R.id.create_subfolder -> {
                             viewModel.showCreateSubfolderDialog()
+                            true
+                        }
+                        R.id.move_folder -> {
+                            viewModel.showMoveFolderPicker()
                             true
                         }
                         R.id.rename_folder -> {
@@ -127,6 +137,7 @@ class FolderSettingsFragment : PreferenceFragmentCompat(), ConfirmationDialogFra
             is Action.ShowClearFolderConfirmationDialog -> showClearFolderConfirmationDialog()
             is Action.ShowCreateSubfolderDialog -> showCreateSubfolderDialog(action)
             is Action.ShowRenameFolderDialog -> showRenameFolderDialog(action)
+            is Action.ShowMoveFolderPicker -> showMoveFolderPicker(action)
             is Action.ShowDeleteFolderConfirmationDialog -> showDeleteFolderConfirmationDialog()
             is Action.ShowFolderOperationResult -> handleFolderOperationResult(action)
         }
@@ -140,6 +151,17 @@ class FolderSettingsFragment : PreferenceFragmentCompat(), ConfirmationDialogFra
             confirmText = getString(R.string.create_folder_dialog_confirm_action),
             folderPathDelimiter = action.folderPathDelimiter,
             isTopLevel = false,
+        )
+    }
+
+    private fun showMoveFolderPicker(action: Action.ShowMoveFolderPicker) {
+        chooseParentFolderLauncher.launch(
+            ChooseParentFolderResultContract.Input(
+                accountUuid = action.accountUuid,
+                folderId = action.folderId,
+                excludedFolderIds = action.excludedFolderIds,
+                showTopLevel = action.showTopLevel,
+            ),
         )
     }
 
