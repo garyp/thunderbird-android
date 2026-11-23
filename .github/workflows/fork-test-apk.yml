@@ -1,0 +1,136 @@
+---
+# Fork-only workflow: builds a signed fossDaily APK and publishes it as a GitHub pre-release,
+# so it can be installed (and kept up to date) with Obtainium.
+#
+# Required repository secrets (Settings > Secrets and variables > Actions):
+#   FORK_SIGNING_KEY        base64-encoded keystore (base64 -w0 fork-test.jks)
+#   FORK_KEY_ALIAS          key alias in the keystore
+#   FORK_KEY_STORE_PASSWORD keystore password
+#   FORK_KEY_PASSWORD       key password
+#
+# Keep the keystore safe: Android only installs updates signed with the same key.
+name: Fork - Test APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag or commit to build
+        required: true
+        default: release
+  push:
+    branches:
+      - release
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-test-apk
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build, sign and publish fossDaily APK
+    # Never run in the upstream repository, even if this file ends up there.
+    if: ${{ github.repository_owner != 'thunderbird' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write # create releases
+    env:
+      SOURCE_REF: ${{ inputs.ref || github.sha }}
+    steps:
+      - name: Check signing secrets
+        env:
+          SIGNING_KEY: ${{ secrets.FORK_SIGNING_KEY }}
+          KEY_ALIAS: ${{ secrets.FORK_KEY_ALIAS }}
+          KEY_STORE_PASSWORD: ${{ secrets.FORK_KEY_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.FORK_KEY_PASSWORD }}
+        run: |
+          for name in SIGNING_KEY KEY_ALIAS KEY_STORE_PASSWORD KEY_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Repository secret FORK_${name} is not set."
+              exit 1
+            fi
+          done
+
+      - name: Checkout the repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.SOURCE_REF }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Cleanup disk
+        uses: ./.github/actions/disk-cleanup
+
+      - name: Setup Gradle environment
+        uses: ./.github/actions/setup-gradle
+
+      - name: Set version
+        id: version
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          # versionCode must increase with every build, or Android refuses the update.
+          VERSION_CODE=$((100000 + RUN_NUMBER))
+          SUFFIX="-fork.${RUN_NUMBER}"
+
+          sed -i -E "s/versionCode = [0-9]+/versionCode = ${VERSION_CODE}/" app-thunderbird/build.gradle.kts
+          sed -i -E "/create\(\"daily\"\)/,/^        }/ s/versionNameSuffix = \"[^\"]*\"/versionNameSuffix = \"${SUFFIX}\"/" \
+            app-thunderbird/build.gradle.kts
+
+          BASE_NAME=$(sed -n -E 's/^ *versionName = "([^"]+)".*/\1/p' app-thunderbird/build.gradle.kts | head -n 1)
+          VERSION_NAME="${BASE_NAME}${SUFFIX}"
+
+          grep -q "versionCode = ${VERSION_CODE}" app-thunderbird/build.gradle.kts
+          grep -q "versionNameSuffix = \"${SUFFIX}\"" app-thunderbird/build.gradle.kts
+
+          echo "code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
+          echo "name=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
+          echo "Building ${VERSION_NAME} (${VERSION_CODE})"
+
+      - name: Build fossDaily APK
+        run: ./gradlew :app-thunderbird:assembleFossDaily -Pci=true
+
+      - name: Collect unsigned APK
+        run: |
+          mkdir -p uploads
+          mv app-thunderbird/build/outputs/apk/foss/daily/app-thunderbird-foss-daily-unsigned.apk \
+            uploads/thunderbird-foss-daily.apk
+
+      - name: Sign APK
+        uses: noriban/sign-android-release@5f144321d3c7c2233266e78b42360345d8bbe403 # v5.1
+        with:
+          releaseDirectory: uploads/
+          signingKeyBase64: ${{ secrets.FORK_SIGNING_KEY }}
+          alias: ${{ secrets.FORK_KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.FORK_KEY_STORE_PASSWORD }}
+          keyPassword: ${{ secrets.FORK_KEY_PASSWORD }}
+
+      - name: Prepare release asset
+        env:
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+        run: |
+          rm -f uploads/*.jks
+          mv uploads/thunderbird-foss-daily-signed.apk "uploads/thunderbird-foss-daily-${VERSION_NAME}.apk"
+          rm -f uploads/thunderbird-foss-daily.apk uploads/*-aligned.apk
+          ls -l uploads/
+
+      - name: Publish pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+          VERSION_CODE: ${{ steps.version.outputs.code }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          COMMIT_SHA=$(git rev-parse HEAD)
+          gh release create "${VERSION_NAME}" \
+            --repo "${REPOSITORY}" \
+            --target "${COMMIT_SHA}" \
+            --prerelease \
+            --title "Thunderbird fork test build ${VERSION_NAME}" \
+            --notes "Unofficial test build of \`${SOURCE_REF}\` (${COMMIT_SHA}), versionCode ${VERSION_CODE}. Built by ${RUN_URL}" \
+            uploads/*.apk
