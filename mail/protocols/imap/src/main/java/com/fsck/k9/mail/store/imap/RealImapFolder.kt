@@ -255,10 +255,9 @@ internal class RealImapFolder(
             this.connection ?: connectionManager.getConnection()
         }
 
-        val hasSpecialUseCapability = connection.hasCapability(Capabilities.CREATE_SPECIAL_USE)
-
         return try {
-            val escapedFolderName = ImapUtility.encodeString(encodedName)
+            val hasSpecialUseCapability = connection.hasCapability(Capabilities.CREATE_SPECIAL_USE)
+            val escapedFolderName = getQuotedMailboxName(serverId)
 
             // https://www.rfc-editor.org/rfc/rfc6154.html#section-5.3
             val specialUseAttribute = folderType
@@ -276,8 +275,11 @@ internal class RealImapFolder(
             val responses = connection.executeSimpleCommand(command)
             responses.any { ImapResponseParser.equalsIgnoreCase(it[0], Responses.OK) }
         } catch (e: NegativeImapResponseException) {
-            Log.e(e, "Unable to create folder %s for %s", serverId, logId)
-            false
+            throw ImapFolderOperationException(
+                message = "CREATE command failed",
+                responseText = e.responseText,
+                cause = e,
+            )
         } catch (ioe: IOException) {
             throw ioExceptionHandler(this.connection, ioe)
         } finally {
@@ -340,16 +342,36 @@ internal class RealImapFolder(
 
     @Throws(MessagingException::class)
     override fun isSubscribed(): Boolean {
-        // https://www.rfc-editor.org/rfc/rfc3501.html#section-6.3.9
-        val responses = executeMailboxCommand(commandName = "LSUB") {
-            "LSUB \"\" ${getQuotedMailboxName(serverId)}"
+        var useListSubscribed = false
+        val responses = executeMailboxCommand(commandName = "LIST/LSUB") { connection ->
+            // LSUB was removed in IMAP4rev2 (RFC 9051, appendix E). Servers supporting IMAP4rev2 or LIST-EXTENDED
+            // (RFC 5258) return the \Subscribed attribute when asked for it with the SUBSCRIBED selection option.
+            useListSubscribed = connection.hasCapability(Capabilities.IMAP4REV2) ||
+                connection.hasCapability(Capabilities.LIST_EXTENDED)
+            val mailboxName = getQuotedMailboxName(serverId)
+            if (useListSubscribed) {
+                "LIST (SUBSCRIBED) \"\" $mailboxName"
+            } else {
+                // https://www.rfc-editor.org/rfc/rfc3501.html#section-6.3.9
+                "LSUB \"\" $mailboxName"
+            }
         }
 
-        return ListResponse.parseLsub(responses).isNotEmpty()
+        return if (useListSubscribed) {
+            ListResponse.parseList(responses).any { it.hasAttribute("\\Subscribed") }
+        } else {
+            ListResponse.parseLsub(responses).isNotEmpty()
+        }
     }
 
     @Throws(MessagingException::class)
     private fun getQuotedMailboxName(serverId: String): String {
+        // Mailbox names are sent as quoted strings, which can't contain CR, LF, or NUL (RFC 9051, section 4.3).
+        // Reject control characters here rather than relying on callers to validate the name.
+        if (serverId.any { it.isISOControl() }) {
+            throw ImapFolderOperationException("Folder name contains control characters", responseText = null)
+        }
+
         return ImapUtility.encodeString(folderNameCodec.encode(getPrefixedName(serverId)))
     }
 
@@ -359,13 +381,16 @@ internal class RealImapFolder(
      * A tagged `NO` or `BAD` response is translated to [ImapFolderOperationException].
      */
     @Throws(MessagingException::class)
-    private fun executeMailboxCommand(commandName: String, buildCommand: () -> String): List<ImapResponse> {
+    private fun executeMailboxCommand(
+        commandName: String,
+        buildCommand: (ImapConnection) -> String,
+    ): List<ImapResponse> {
         val connection = synchronized(this) {
             this.connection ?: connectionManager.getConnection()
         }
 
         return try {
-            connection.executeSimpleCommand(buildCommand())
+            connection.executeSimpleCommand(buildCommand(connection))
         } catch (e: NegativeImapResponseException) {
             throw ImapFolderOperationException(
                 message = "$commandName command failed",

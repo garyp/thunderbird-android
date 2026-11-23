@@ -20,12 +20,11 @@ class DemoBackend(
     private val backendStorage: BackendStorage,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : Backend {
-    private val demoStore by lazy { DemoStore(backendStorage) }
+    private val demoStore by lazy { DemoStore() }
 
     private val commandSync by lazy { CommandSync(backendStorage, demoStore) }
     private val commandRefreshFolderList by lazy { CommandRefreshFolderList(backendStorage, demoStore) }
     private val commandSendMessage by lazy { CommandSendMessage(backendStorage, demoStore) }
-    private val commandManageFolder by lazy { CommandManageFolder(backendStorage, demoStore) }
 
     override val supportsFlags: Boolean = true
     override val supportsExpunge: Boolean = false
@@ -35,27 +34,10 @@ class DemoBackend(
     override val supportsTrashFolder: Boolean = true
     override val supportsSearchByDate: Boolean = false
     override val supportsFolderSubscriptions: Boolean = false
-    override val supportsFolderManagement: Boolean = true
     override val isPushCapable: Boolean = false
 
     override fun refreshFolderList(): FolderPathDelimiter? {
         return commandRefreshFolderList.refreshFolderList()
-    }
-
-    override fun createFolder(folderServerId: String) {
-        commandManageFolder.createFolder(folderServerId)
-    }
-
-    override fun renameFolder(
-        folderServerId: String,
-        newFolderServerId: String,
-        folderPathDelimiter: FolderPathDelimiter,
-    ) {
-        commandManageFolder.renameFolder(folderServerId, newFolderServerId, folderPathDelimiter)
-    }
-
-    override fun deleteFolder(folderServerId: String) {
-        commandManageFolder.deleteFolder(folderServerId)
     }
 
     override fun sync(folderServerId: String, syncConfig: SyncConfig, listener: SyncListener) =

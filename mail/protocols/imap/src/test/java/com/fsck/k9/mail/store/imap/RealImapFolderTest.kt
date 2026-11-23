@@ -266,13 +266,30 @@ class RealImapFolderTest {
     }
 
     @Test
-    fun create_withNegativeImapResponse_shouldReturnFalse() {
-        val imapFolder = createFolder("Folder")
-        doThrow(NegativeImapResponseException::class).whenever(imapConnection).executeSimpleCommand("CREATE \"Folder\"")
+    fun `create() with negative response should throw ImapFolderOperationException containing response text`() {
+        val testSubject = createFolder("Folder")
+        doThrow(
+            NegativeImapResponseException(
+                message = "Command failed",
+                responses = createImapResponseList("x NO [ALREADYEXISTS] Mailbox already exists"),
+            ),
+        ).whenever(imapConnection).executeSimpleCommand("CREATE \"Folder\"")
 
-        val success = imapFolder.create()
+        assertFailure {
+            testSubject.create()
+        }.isInstanceOf<ImapFolderOperationException>()
+            .transform { it.responseText }.isEqualTo("Mailbox already exists")
+    }
 
-        assertThat(success).isFalse()
+    @Test
+    fun `create() should reject folder names containing control characters`() {
+        val testSubject = createFolder("Folder\r\nA1 LOGOUT")
+
+        assertFailure {
+            testSubject.create()
+        }.isInstanceOf<ImapFolderOperationException>()
+
+        verify(imapConnection, never()).executeSimpleCommand(anyString())
     }
 
     @Test
@@ -412,6 +429,50 @@ class RealImapFolderTest {
         testSubject.unsubscribe()
 
         verify(imapConnection).executeSimpleCommand("UNSUBSCRIBE \"Folder\"")
+    }
+
+    @Test
+    fun `rename() should reject new names containing control characters`() {
+        val testSubject = createFolder("Old")
+
+        assertFailure {
+            testSubject.rename("New\r\nA1 DELETE INBOX")
+        }.isInstanceOf<ImapFolderOperationException>()
+
+        verify(imapConnection, never()).executeSimpleCommand(anyString())
+    }
+
+    @Test
+    fun `isSubscribed() on IMAP4rev2 server should use LIST (SUBSCRIBED)`() {
+        val testSubject = createFolder("Folder")
+        imapConnection.stub {
+            on { hasCapability(Capabilities.IMAP4REV2) } doReturn true
+        }
+        whenever(imapConnection.executeSimpleCommand("LIST (SUBSCRIBED) \"\" \"Folder\"")).thenReturn(
+            createImapResponseList(
+                "* LIST (\\Subscribed) \"/\" \"Folder\"",
+                "x OK LIST completed",
+            ),
+        )
+
+        val result = testSubject.isSubscribed()
+
+        assertThat(result).isTrue()
+    }
+
+    @Test
+    fun `isSubscribed() on IMAP4rev2 server without Subscribed attribute should return false`() {
+        val testSubject = createFolder("Folder")
+        imapConnection.stub {
+            on { hasCapability(Capabilities.IMAP4REV2) } doReturn true
+        }
+        whenever(imapConnection.executeSimpleCommand("LIST (SUBSCRIBED) \"\" \"Folder\"")).thenReturn(
+            createImapResponseList("x OK LIST completed"),
+        )
+
+        val result = testSubject.isSubscribed()
+
+        assertThat(result).isFalse()
     }
 
     @Test

@@ -97,7 +97,9 @@ interface ImapFolder {
     /**
      * Creates this folder on the IMAP server.
      *
-     * @throws MessagingException when fails to create folder on IMAP server.
+     * @return `true` if the server confirmed the creation.
+     * @throws ImapFolderOperationException if the server rejected the command, e.g. because the folder already exists.
+     * @throws MessagingException in case of a network error.
      */
     @Throws(MessagingException::class)
     fun create(folderType: FolderType = FolderType.REGULAR): Boolean
@@ -155,8 +157,10 @@ interface ImapFolder {
     fun unsubscribe()
 
     /**
-     * Checks whether this folder is in the server's set of subscribed folders using the `LSUB` command (RFC 3501,
-     * section 6.3.9).
+     * Checks whether this folder is in the server's set of subscribed folders.
+     *
+     * Uses `LIST (SUBSCRIBED)` (RFC 5258, RFC 9051 section 6.3.9) when the server supports IMAP4rev2 or LIST-EXTENDED,
+     * and `LSUB` (RFC 3501, section 6.3.9) otherwise.
      *
      * @throws ImapFolderOperationException if the server rejected the command.
      * @throws MessagingException in case of a network error.
