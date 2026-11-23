@@ -76,6 +76,10 @@ jobs:
 
       - name: Setup Gradle environment
         uses: ./.github/actions/setup-gradle
+        with:
+          # Save the Gradle cache too (upstream only does this for pushes to main). The cache key is derived
+          # from the build files, so builds of this fork's release branch otherwise never get a cache hit.
+          write-cache: 'true'
 
       - name: Set version and application ID
         id: version
