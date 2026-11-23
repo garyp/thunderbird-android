@@ -12,11 +12,15 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import net.thunderbird.core.android.account.LegacyAccountDto
+import net.thunderbird.components.core.outcome.Outcome
 import net.thunderbird.components.core.outcome.fold
+import net.thunderbird.core.android.account.LegacyAccountDto
 import net.thunderbird.feature.mail.folder.api.Folder
 import net.thunderbird.feature.mail.folder.api.FolderDetails
+import net.thunderbird.feature.mail.folder.api.FolderManagementOptions
+import net.thunderbird.feature.mail.folder.api.data.FolderManagementError
 import net.thunderbird.feature.mail.folder.api.data.repository.FolderDetailsRepository
+import net.thunderbird.feature.mail.folder.api.data.repository.FolderManagementRepository
 import net.thunderbird.legacy.logging.Log
 
 private const val NO_FOLDER_ID = 0L
@@ -26,7 +30,7 @@ class FolderSettingsViewModel(
     private val preferences: Preferences,
     private val folderDetailsRepository: FolderDetailsRepository,
     private val messagingController: MessagingController,
-    private val folderManagementOperations: FolderManagementOperations,
+    private val folderManagementRepository: FolderManagementRepository,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
     private val actionLiveData = SingleLiveEvent<Action>()
@@ -35,20 +39,19 @@ class FolderSettingsViewModel(
 
     private lateinit var account: LegacyAccountDto
     private var folderId: Long = NO_FOLDER_ID
-    private var folder: Folder? = null
-    private var folderManagementSupported = false
+    private var folderManagementOptions: FolderManagementOptions? = null
 
     val showClearFolderInMenu: Boolean
         get() = this::account.isInitialized && folderId != NO_FOLDER_ID
 
     val showCreateSubfolderInMenu: Boolean
-        get() = folderManagementSupported && folder?.let { folderManagementOperations.canCreateSubfolder(it) } == true
+        get() = folderManagementOptions?.canCreateSubfolder == true
 
     val showRenameFolderInMenu: Boolean
-        get() = folderManagementSupported && folder?.let { folderManagementOperations.canRename(it) } == true
+        get() = folderManagementOptions?.canRename == true
 
     val showDeleteFolderInMenu: Boolean
-        get() = folderManagementSupported && folder?.let { folderManagementOperations.canDelete(it) } == true
+        get() = folderManagementOptions?.canDelete == true
 
     fun getFolderSettingsLiveData(accountUuid: String, folderId: Long): LiveData<FolderSettingsResult> {
         return folderSettingsLiveData ?: createFolderSettingsLiveData(accountUuid, folderId).also {
@@ -71,9 +74,7 @@ class FolderSettingsViewModel(
 
             this@FolderSettingsViewModel.account = account
             this@FolderSettingsViewModel.folderId = folderId
-            this@FolderSettingsViewModel.folder = folderDetails.folder
-            this@FolderSettingsViewModel.folderManagementSupported =
-                folderManagementOperations.supportsFolderManagement(account)
+            this@FolderSettingsViewModel.folderManagementOptions = loadFolderManagementOptions(account, folderId)
 
             val folderSettingsData = FolderSettingsData(
                 folder = folderDetails.folder,
@@ -85,6 +86,18 @@ class FolderSettingsViewModel(
 
     private suspend fun loadAccount(accountUuid: String): LegacyAccountDto = withContext(ioDispatcher) {
         preferences.getAccount(accountUuid) ?: error("Missing account: $accountUuid")
+    }
+
+    private suspend fun loadFolderManagementOptions(
+        account: LegacyAccountDto,
+        folderId: Long,
+    ): FolderManagementOptions? {
+        if (!folderManagementRepository.isSupported(account.id)) return null
+
+        return folderManagementRepository.getOptions(account.id, folderId).fold(
+            onSuccess = { it },
+            onFailure = { null },
+        )
     }
 
     private suspend fun FolderDetailsRepository.loadFolderDetails(
@@ -103,21 +116,19 @@ class FolderSettingsViewModel(
     }
 
     fun showCreateSubfolderDialog() {
-        sendActionEvent(Action.ShowCreateSubfolderDialog(account.folderPathDelimiter))
+        val options = folderManagementOptions ?: return
+        sendActionEvent(Action.ShowCreateSubfolderDialog(options.folderPathDelimiter))
     }
 
     fun showRenameFolderDialog() {
-        viewModelScope.launch {
-            val serverId = folderManagementOperations.getFolderServerId(account, folderId) ?: return@launch
-            val delimiter = account.folderPathDelimiter
-            sendActionEvent(
-                Action.ShowRenameFolderDialog(
-                    currentName = FolderServerIdHelper.getName(serverId, delimiter),
-                    folderPathDelimiter = delimiter,
-                    isTopLevel = FolderServerIdHelper.getParentServerId(serverId, delimiter) == null,
-                ),
-            )
-        }
+        val options = folderManagementOptions ?: return
+        sendActionEvent(
+            Action.ShowRenameFolderDialog(
+                currentName = options.name,
+                folderPathDelimiter = options.folderPathDelimiter,
+                isTopLevel = options.isTopLevel,
+            ),
+        )
     }
 
     fun showDeleteFolderConfirmationDialog() {
@@ -126,42 +137,44 @@ class FolderSettingsViewModel(
 
     fun onCreateSubfolder(name: String) {
         performFolderOperation(FolderOperation.CREATE) {
-            folderManagementOperations.createFolder(account, parentFolderId = folderId, name = name)
+            folderManagementRepository.create(account.id, parentFolderId = folderId, name = name)
         }
     }
 
     fun onRenameFolder(newName: String) {
         performFolderOperation(FolderOperation.RENAME) {
-            folderManagementOperations.renameFolder(account, folderId, newName)
+            folderManagementRepository.rename(account.id, folderId, newName)
         }
     }
 
     fun onDeleteFolderConfirmation() {
         performFolderOperation(FolderOperation.DELETE) {
-            folderManagementOperations.deleteFolder(account, folderId)
+            folderManagementRepository.delete(account.id, folderId)
         }
     }
 
     private fun performFolderOperation(
         operation: FolderOperation,
-        block: suspend () -> FolderOperationResult,
+        block: suspend () -> Outcome<Unit, FolderManagementError>,
     ) {
         if (operationInProgressLiveData.value == true) return
 
         operationInProgressLiveData.value = true
         viewModelScope.launch {
-            val result = block()
+            val event = FolderOperationEvent(
+                operation = operation,
+                error = block().fold(onSuccess = { null }, onFailure = { it }),
+            )
 
-            val updatedFolder = if (operation == FolderOperation.RENAME && result == FolderOperationResult.Success) {
-                folderDetailsRepository.loadFolderDetails(account, folderId)?.folder?.also { folder = it }
+            val updatedFolder = if (operation == FolderOperation.RENAME && event.isSuccess) {
+                folderManagementOptions = loadFolderManagementOptions(account, folderId)
+                folderDetailsRepository.loadFolderDetails(account, folderId)?.folder
             } else {
                 null
             }
 
             operationInProgressLiveData.value = false
-            sendActionEvent(
-                Action.ShowFolderOperationResult(FolderOperationEvent(operation, result), updatedFolder),
-            )
+            sendActionEvent(Action.ShowFolderOperationResult(event, updatedFolder))
         }
     }
 

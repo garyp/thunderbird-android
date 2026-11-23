@@ -12,6 +12,9 @@ import com.fsck.k9.ui.R
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
+import net.thunderbird.feature.mail.folder.api.FolderNameError
+import net.thunderbird.feature.mail.folder.api.FolderNameValidator
+import org.koin.android.ext.android.inject
 import com.fsck.k9.ui.base.R as BaseR
 
 /**
@@ -21,6 +24,8 @@ import com.fsck.k9.ui.base.R as BaseR
  * request key passed to [show]. The name can be retrieved from the result bundle using [RESULT_FOLDER_NAME].
  */
 class FolderNameDialogFragment : DialogFragment() {
+    private val folderNameValidator: FolderNameValidator by inject()
+
     private lateinit var folderNameLayout: TextInputLayout
     private lateinit var folderNameEditText: TextInputEditText
 
@@ -69,7 +74,7 @@ class FolderNameDialogFragment : DialogFragment() {
         val folderPathDelimiter = arguments.getString(ARG_FOLDER_PATH_DELIMITER).orEmpty()
         val isTopLevel = arguments.getBoolean(ARG_IS_TOP_LEVEL)
 
-        return FolderNameValidator.validate(folderNameEditText.text.toString(), folderPathDelimiter, isTopLevel)
+        return folderNameValidator.validate(folderNameEditText.text.toString(), folderPathDelimiter, isTopLevel)
     }
 
     private fun updateState(showError: Boolean) {

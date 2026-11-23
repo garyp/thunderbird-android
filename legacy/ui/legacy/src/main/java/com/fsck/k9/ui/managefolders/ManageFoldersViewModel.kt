@@ -10,11 +10,13 @@ import app.k9mail.legacy.ui.folder.DisplayFolder
 import app.k9mail.legacy.ui.folder.DisplayFolderRepository
 import com.fsck.k9.helper.SingleLiveEvent
 import kotlinx.coroutines.launch
+import net.thunderbird.components.core.outcome.fold
 import net.thunderbird.core.android.account.LegacyAccountDto
+import net.thunderbird.feature.mail.folder.api.data.repository.FolderManagementRepository
 
 class ManageFoldersViewModel(
     private val folderRepository: DisplayFolderRepository,
-    private val folderManagementOperations: FolderManagementOperations,
+    private val folderManagementRepository: FolderManagementRepository,
 ) : ViewModel() {
     private val operationInProgressLiveData = MutableLiveData(false)
     private val operationEventLiveData = SingleLiveEvent<FolderOperationEvent>()
@@ -26,7 +28,7 @@ class ManageFoldersViewModel(
 
     fun getFolderManagementSupported(account: LegacyAccountDto): LiveData<Boolean> {
         return folderManagementSupportedLiveData ?: liveData {
-            emit(folderManagementOperations.supportsFolderManagement(account))
+            emit(folderManagementRepository.isSupported(account.id))
         }.also { folderManagementSupportedLiveData = it }
     }
 
@@ -39,10 +41,13 @@ class ManageFoldersViewModel(
 
         operationInProgressLiveData.value = true
         viewModelScope.launch {
-            val result = folderManagementOperations.createFolder(account, parentFolderId = null, name = name)
+            val outcome = folderManagementRepository.create(account.id, parentFolderId = null, name = name)
 
             operationInProgressLiveData.value = false
-            operationEventLiveData.value = FolderOperationEvent(FolderOperation.CREATE, result)
+            operationEventLiveData.value = FolderOperationEvent(
+                operation = FolderOperation.CREATE,
+                error = outcome.fold(onSuccess = { null }, onFailure = { it }),
+            )
         }
     }
 }

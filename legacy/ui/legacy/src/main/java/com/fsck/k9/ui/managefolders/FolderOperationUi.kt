@@ -5,6 +5,8 @@ import androidx.fragment.app.DialogFragment
 import androidx.fragment.app.Fragment
 import com.fsck.k9.fragment.ProgressDialogFragment
 import com.fsck.k9.ui.R
+import net.thunderbird.feature.mail.folder.api.FolderNameError
+import net.thunderbird.feature.mail.folder.api.data.FolderManagementError
 
 private const val TAG_PROGRESS_DIALOG = "folder_operation_progress"
 private const val MAX_SERVER_MESSAGE_LENGTH = 200
@@ -15,10 +17,15 @@ enum class FolderOperation {
     DELETE,
 }
 
+/**
+ * The result of a folder operation. [error] is `null` if the operation was successful.
+ */
 data class FolderOperationEvent(
     val operation: FolderOperation,
-    val result: FolderOperationResult,
-)
+    val error: FolderManagementError?,
+) {
+    val isSuccess: Boolean get() = error == null
+}
 
 internal fun Fragment.setFolderOperationProgressVisible(visible: Boolean) {
     val fragmentManager = childFragmentManager
@@ -37,15 +44,17 @@ internal fun Fragment.setFolderOperationProgressVisible(visible: Boolean) {
 }
 
 internal fun Fragment.showFolderOperationResult(event: FolderOperationEvent) {
-    val message = when (val result = event.result) {
-        FolderOperationResult.Success -> getSuccessMessage(event.operation)
-        is FolderOperationResult.InvalidName -> getInvalidNameMessage(result.error)
-        FolderOperationResult.AlreadyExists -> getString(R.string.folder_operation_error_already_exists)
-        FolderOperationResult.HasSubfolders -> getString(R.string.folder_operation_error_has_subfolders)
-        FolderOperationResult.NotAllowed -> getString(R.string.folder_operation_error_not_allowed)
-        FolderOperationResult.FolderNotFound -> getString(R.string.folder_operation_error_folder_not_found)
-        is FolderOperationResult.ServerError -> getServerErrorMessage(result.serverMessage)
-        FolderOperationResult.Failed -> getString(R.string.folder_operation_error_failed)
+    val message = when (val error = event.error) {
+        null -> getSuccessMessage(event.operation)
+        is FolderManagementError.InvalidName -> getInvalidNameMessage(error.error)
+        FolderManagementError.AlreadyExists -> getString(R.string.folder_operation_error_already_exists)
+        FolderManagementError.HasSubfolders -> getString(R.string.folder_operation_error_has_subfolders)
+        FolderManagementError.NotAllowed, FolderManagementError.NotSupported -> {
+            getString(R.string.folder_operation_error_not_allowed)
+        }
+        FolderManagementError.FolderNotFound -> getString(R.string.folder_operation_error_folder_not_found)
+        is FolderManagementError.ServerError -> getServerErrorMessage(error.serverMessage)
+        FolderManagementError.Failed -> getString(R.string.folder_operation_error_failed)
     }
 
     Toast.makeText(requireContext(), message, Toast.LENGTH_LONG).show()
@@ -70,10 +79,23 @@ private fun Fragment.getInvalidNameMessage(error: FolderNameError): String {
 }
 
 private fun Fragment.getServerErrorMessage(serverMessage: String?): String {
-    val trimmedMessage = serverMessage?.trim()?.take(MAX_SERVER_MESSAGE_LENGTH)
+    val trimmedMessage = serverMessage?.let { sanitizeServerMessage(it) }
     return if (trimmedMessage.isNullOrEmpty()) {
         getString(R.string.folder_operation_error_server)
     } else {
         getString(R.string.folder_operation_error_server_with_message, trimmedMessage)
     }
 }
+
+/**
+ * Prepares untrusted, server-provided text for display as plain text: control and format characters (e.g. bidi
+ * overrides) are replaced, whitespace is collapsed, and the length is limited.
+ */
+internal fun sanitizeServerMessage(serverMessage: String): String {
+    return serverMessage
+        .replace(UNSAFE_OR_WHITESPACE_REGEX, " ")
+        .trim()
+        .take(MAX_SERVER_MESSAGE_LENGTH)
+}
+
+private val UNSAFE_OR_WHITESPACE_REGEX = Regex("""[\p{Cc}\p{Cf}\s]+""")

@@ -173,7 +173,7 @@ class FolderSettingsFragment : PreferenceFragmentCompat(), ConfirmationDialogFra
 
         action.updatedFolder?.let { updateFolder(it) }
 
-        if (event.operation == FolderOperation.DELETE && event.result == FolderOperationResult.Success) {
+        if (event.operation == FolderOperation.DELETE && event.isSuccess) {
             navigateBack()
         }
     }
