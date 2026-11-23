@@ -9,6 +9,12 @@
 #   FORK_KEY_PASSWORD       key password
 #
 # Keep the keystore safe: Android only installs updates signed with the same key.
+#
+# Versioning follows the upstream values on the built branch:
+#   versionName = <upstream versionName>-fork.<run number>
+#   versionCode = <upstream versionCode> * 1000 + <local increment>
+# The local increment restarts at 1 whenever upstream bumps versionCode. It is derived from the
+# "(versionCode N)" in the titles of earlier fork pre-releases, so don't rename or delete those.
 name: Fork - Test APK
 
 on:
@@ -40,6 +46,8 @@ jobs:
       contents: write # create releases
     env:
       SOURCE_REF: ${{ inputs.ref || github.sha }}
+      # The daily build type appends ".daily", giving com.realify.gary.thunderbird.android.daily
+      FORK_APPLICATION_ID_BASE: com.realify.gary.thunderbird.android
     steps:
       - name: Check signing secrets
         env:
@@ -68,31 +76,70 @@ jobs:
       - name: Setup Gradle environment
         uses: ./.github/actions/setup-gradle
 
-      - name: Set version
+      - name: Set version and application ID
         id: version
         env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
           RUN_NUMBER: ${{ github.run_number }}
         run: |
-          # versionCode must increase with every build, or Android refuses the update.
-          VERSION_CODE=$((100000 + RUN_NUMBER))
+          BUILD_FILE=app-thunderbird/build.gradle.kts
+
+          UPSTREAM_CODE=$(sed -n -E 's/^ *versionCode = ([0-9]+).*/\1/p' "$BUILD_FILE" | head -n 1)
+          UPSTREAM_NAME=$(sed -n -E 's/^ *versionName = "([^"]+)".*/\1/p' "$BUILD_FILE" | head -n 1)
+          if [[ -z "$UPSTREAM_CODE" || -z "$UPSTREAM_NAME" ]]; then
+            echo "::error::Could not read versionCode/versionName from $BUILD_FILE"
+            exit 1
+          fi
+
+          # Local increment: one more than the highest fork versionCode published for this upstream versionCode.
+          BASE=$((UPSTREAM_CODE * 1000))
+          LAST_CODE=$(gh release list --repo "$REPOSITORY" --limit 1000 --json name --jq '.[].name' \
+            | sed -n -E 's/.*\(versionCode ([0-9]+)\).*/\1/p' \
+            | awk -v lo="$BASE" -v hi="$((BASE + 999))" '$1 >= lo && $1 <= hi' \
+            | sort -n | tail -n 1)
+          INCREMENT=$(( ${LAST_CODE:-$BASE} - BASE + 1 ))
+          if (( INCREMENT > 999 )); then
+            echo "::error::More than 999 fork builds for upstream versionCode $UPSTREAM_CODE"
+            exit 1
+          fi
+
+          VERSION_CODE=$((BASE + INCREMENT))
           SUFFIX="-fork.${RUN_NUMBER}"
+          VERSION_NAME="${UPSTREAM_NAME}${SUFFIX}"
 
-          sed -i -E "s/versionCode = [0-9]+/versionCode = ${VERSION_CODE}/" app-thunderbird/build.gradle.kts
-          sed -i -E "/create\(\"daily\"\)/,/^        }/ s/versionNameSuffix = \"[^\"]*\"/versionNameSuffix = \"${SUFFIX}\"/" \
-            app-thunderbird/build.gradle.kts
+          sed -i -E "s/^( *versionCode = )[0-9]+/\1${VERSION_CODE}/" "$BUILD_FILE"
+          sed -i -E "/create\(\"daily\"\)/,/^        }/ s/versionNameSuffix = \"[^\"]*\"/versionNameSuffix = \"${SUFFIX}\"/" "$BUILD_FILE"
+          sed -i -E "s/^( *applicationId = )\"[^\"]+\"/\1\"${FORK_APPLICATION_ID_BASE}\"/" "$BUILD_FILE"
 
-          BASE_NAME=$(sed -n -E 's/^ *versionName = "([^"]+)".*/\1/p' app-thunderbird/build.gradle.kts | head -n 1)
-          VERSION_NAME="${BASE_NAME}${SUFFIX}"
+          grep -q "versionCode = ${VERSION_CODE}$" "$BUILD_FILE"
+          grep -q "versionNameSuffix = \"${SUFFIX}\"" "$BUILD_FILE"
+          grep -q "applicationId = \"${FORK_APPLICATION_ID_BASE}\"" "$BUILD_FILE"
 
-          grep -q "versionCode = ${VERSION_CODE}" app-thunderbird/build.gradle.kts
-          grep -q "versionNameSuffix = \"${SUFFIX}\"" app-thunderbird/build.gradle.kts
-
-          echo "code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
-          echo "name=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
-          echo "Building ${VERSION_NAME} (${VERSION_CODE})"
+          {
+            echo "code=${VERSION_CODE}"
+            echo "name=${VERSION_NAME}"
+            echo "upstream_code=${UPSTREAM_CODE}"
+            echo "upstream_name=${UPSTREAM_NAME}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Upstream ${UPSTREAM_NAME} (${UPSTREAM_CODE}) -> fork ${VERSION_NAME} (${VERSION_CODE})"
 
       - name: Build fossDaily APK
         run: ./gradlew :app-thunderbird:assembleFossDaily -Pci=true
+
+      - name: Verify APK metadata
+        env:
+          EXPECTED_PACKAGE: ${{ env.FORK_APPLICATION_ID_BASE }}.daily
+          EXPECTED_CODE: ${{ steps.version.outputs.code }}
+          EXPECTED_NAME: ${{ steps.version.outputs.name }}
+        run: |
+          APK=app-thunderbird/build/outputs/apk/foss/daily/app-thunderbird-foss-daily-unsigned.apk
+          AAPT2="$(find "$ANDROID_HOME/build-tools" -name aapt2 | sort -V | tail -n 1)"
+          BADGING=$("$AAPT2" dump badging "$APK" | head -n 1)
+          echo "$BADGING"
+          [[ "$BADGING" == *"name='${EXPECTED_PACKAGE}'"* ]] || { echo "::error::Unexpected package"; exit 1; }
+          [[ "$BADGING" == *"versionCode='${EXPECTED_CODE}'"* ]] || { echo "::error::Unexpected versionCode"; exit 1; }
+          [[ "$BADGING" == *"versionName='${EXPECTED_NAME}'"* ]] || { echo "::error::Unexpected versionName"; exit 1; }
 
       - name: Collect unsigned APK
         run: |
@@ -123,6 +170,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION_NAME: ${{ steps.version.outputs.name }}
           VERSION_CODE: ${{ steps.version.outputs.code }}
+          UPSTREAM_NAME: ${{ steps.version.outputs.upstream_name }}
+          UPSTREAM_CODE: ${{ steps.version.outputs.upstream_code }}
+          APPLICATION_ID: ${{ env.FORK_APPLICATION_ID_BASE }}.daily
           REPOSITORY: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -131,6 +181,6 @@ jobs:
             --repo "${REPOSITORY}" \
             --target "${COMMIT_SHA}" \
             --prerelease \
-            --title "Thunderbird fork test build ${VERSION_NAME}" \
-            --notes "Unofficial test build of \`${SOURCE_REF}\` (${COMMIT_SHA}), versionCode ${VERSION_CODE}. Built by ${RUN_URL}" \
+            --title "Thunderbird fork test build ${VERSION_NAME} (versionCode ${VERSION_CODE})" \
+            --notes "Unofficial test build of \`${SOURCE_REF}\` (${COMMIT_SHA}). Upstream ${UPSTREAM_NAME} (${UPSTREAM_CODE}); application ID \`${APPLICATION_ID}\`. Built by ${RUN_URL}" \
             uploads/*.apk
