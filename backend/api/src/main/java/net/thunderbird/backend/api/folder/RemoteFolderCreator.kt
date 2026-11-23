@@ -60,6 +60,15 @@ sealed interface RemoteFolderCreationOutcome {
         ) : Error
 
         /**
+         * Used to flag that the server refused to create the folder.
+         * @param serverMessage The server's explanation, if any. This is untrusted, server-provided text that may
+         * only be displayed to the user.
+         */
+        data class RejectedByServer(
+            val serverMessage: String?,
+        ) : Error
+
+        /**
          * Used to flag that the Create Folder operation is not supported by the server.
          * E.g. POP3 servers don't support creating archive folders.
          */

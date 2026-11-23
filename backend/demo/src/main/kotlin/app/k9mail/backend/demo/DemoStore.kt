@@ -12,28 +12,28 @@ private const val EXTRA_DEMO_FOLDERS = "demoFolders"
  * The demo "server". Its folder hierarchy starts out as the bundled demo mailbox and can then be changed by creating,
  * renaming, and deleting folders. Changes are persisted using [BackendStorage], so they survive app restarts and folder
  * list refreshes.
+ *
+ * The folder hierarchy is read from [BackendStorage] on every access rather than cached, because several instances
+ * exist for the same account: one owned by [DemoBackend] and others used by the demo remote folder operations.
  */
 internal class DemoStore(
     private val backendStorage: BackendStorage,
     private val demoDataLoader: DemoDataLoader = DemoDataLoader(),
 ) {
-    private val folders: MutableMap<String, DemoStoreFolder> by lazy {
-        (loadPersistedFolders() ?: flattenDemoFolders(demoDataLoader.loadFolders())).toMutableMap()
+    private fun loadFolders(): MutableMap<String, DemoStoreFolder> {
+        return (loadPersistedFolders() ?: flattenDemoFolders(demoDataLoader.loadFolders())).toMutableMap()
     }
 
-    @Synchronized
     fun getFolder(folderServerId: String): DemoStoreFolder? {
-        return folders[folderServerId]
+        return loadFolders()[folderServerId]
     }
 
-    @Synchronized
     fun getFolderIds(): Set<String> {
-        return folders.keys.toSet()
+        return loadFolders().keys
     }
 
-    @Synchronized
     fun getInboxFolderId(): String {
-        return folders.filterValues { it.type == FolderType.INBOX }.keys.first()
+        return loadFolders().filterValues { it.type == FolderType.INBOX }.keys.first()
     }
 
     fun getMessage(folderServerId: String, messageServerId: String): Message {
@@ -42,32 +42,32 @@ internal class DemoStore(
         return demoDataLoader.loadMessage(resourcePath, messageServerId)
     }
 
-    @Synchronized
     fun addFolder(folderServerId: String, folder: DemoStoreFolder) {
+        val folders = loadFolders()
         check(folderServerId !in folders) { "Folder $folderServerId already exists" }
         folders[folderServerId] = folder
-        persistFolders()
+        persistFolders(folders)
     }
 
     /**
      * Replaces the server IDs and names of existing folders. [renamedFolders] maps old server IDs to new server IDs and
      * names.
      */
-    @Synchronized
     fun renameFolders(renamedFolders: Map<String, Pair<String, String>>) {
+        val folders = loadFolders()
         val movedFolders = renamedFolders.map { (oldServerId, newServerIdAndName) ->
             val folder = folders.remove(oldServerId) ?: error("Folder $oldServerId not found")
             val (newServerId, newName) = newServerIdAndName
             newServerId to folder.copy(name = newName)
         }
         folders.putAll(movedFolders)
-        persistFolders()
+        persistFolders(folders)
     }
 
-    @Synchronized
     fun removeFolder(folderServerId: String) {
+        val folders = loadFolders()
         folders.remove(folderServerId)
-        persistFolders()
+        persistFolders(folders)
     }
 
     /**
@@ -79,7 +79,7 @@ internal class DemoStore(
         return runCatching { Json.decodeFromString<Map<String, DemoStoreFolder>>(json) }.getOrNull()
     }
 
-    private fun persistFolders() {
+    private fun persistFolders(folders: Map<String, DemoStoreFolder>) {
         backendStorage.setExtraString(EXTRA_DEMO_FOLDERS, Json.encodeToString<Map<String, DemoStoreFolder>>(folders))
     }
 

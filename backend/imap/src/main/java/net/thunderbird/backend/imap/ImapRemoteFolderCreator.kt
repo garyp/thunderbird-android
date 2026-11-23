@@ -3,6 +3,7 @@ package net.thunderbird.backend.imap
 import com.fsck.k9.backend.imap.ImapBackend
 import com.fsck.k9.mail.FolderType
 import com.fsck.k9.mail.folders.FolderServerId
+import com.fsck.k9.mail.store.imap.ImapFolderOperationException
 import com.fsck.k9.mail.store.imap.ImapStore
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -20,6 +21,8 @@ class ImapRemoteFolderCreator(
     private val imapStore: ImapStore,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : RemoteFolderCreator {
+    private val subscriptions = ImapFolderSubscriptions(logger, imapStore)
+
     override suspend fun create(
         folderServerId: FolderServerId,
         mustCreate: Boolean,
@@ -35,9 +38,11 @@ class ImapRemoteFolderCreator(
 
                 folderExists -> Outcome.success(RemoteFolderCreationOutcome.Success.AlreadyExists)
 
-                !folderExists && remoteFolder.create(folderType = folderType) -> Outcome.success(
-                    RemoteFolderCreationOutcome.Success.Created,
-                )
+                !folderExists && remoteFolder.create(folderType = folderType) -> {
+                    // Without a subscription the new folder isn't listed when "subscribed folders only" is enabled.
+                    subscriptions.subscribe(folderServerId.serverId)
+                    Outcome.success(RemoteFolderCreationOutcome.Success.Created)
+                }
 
                 else -> Outcome.failure(
                     RemoteFolderCreationOutcome.Error.FailedToCreateRemoteFolder(
@@ -45,6 +50,9 @@ class ImapRemoteFolderCreator(
                     ),
                 )
             }
+        } catch (e: ImapFolderOperationException) {
+            logger.warn(message = { "Server refused to create remote folder" })
+            Outcome.failure(RemoteFolderCreationOutcome.Error.RejectedByServer(serverMessage = e.responseText))
         } catch (e: MessagingException) {
             logger.error(message = { "Failed to create remote folder '${folderServerId.serverId}'" }, throwable = e)
             Outcome.failure(

@@ -20,7 +20,7 @@ class DemoBackend(
     private val backendStorage: BackendStorage,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : Backend {
-    private val demoStore by lazy { DemoStore() }
+    private val demoStore by lazy { DemoStore(backendStorage) }
 
     private val commandSync by lazy { CommandSync(backendStorage, demoStore) }
     private val commandRefreshFolderList by lazy { CommandRefreshFolderList(backendStorage, demoStore) }
