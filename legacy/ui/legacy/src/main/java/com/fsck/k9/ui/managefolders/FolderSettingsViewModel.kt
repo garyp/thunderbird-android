@@ -177,9 +177,9 @@ class FolderSettingsViewModel(
         }
     }
 
-    private fun performFolderOperation(
+    private fun <T> performFolderOperation(
         operation: FolderOperation,
-        block: suspend () -> Outcome<Unit, FolderManagementError>,
+        block: suspend () -> Outcome<T, FolderManagementError>,
     ) {
         // A restored dialog can deliver its result before the folder settings were loaded, e.g. after process death.
         if (!this::account.isInitialized || folderId == NO_FOLDER_ID) return

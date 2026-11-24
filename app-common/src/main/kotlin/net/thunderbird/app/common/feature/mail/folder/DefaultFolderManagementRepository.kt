@@ -79,7 +79,7 @@ internal class DefaultFolderManagementRepository(
         accountId: AccountId,
         parentFolderId: Long?,
         name: String,
-    ): Outcome<Unit, FolderManagementError> = performOperation(accountId) { account ->
+    ): Outcome<Long?, FolderManagementError> = performOperation(accountId) { account ->
         val delimiter = account.folderPathDelimiter
         val parentServerId = parentFolderId?.let { folderId ->
             val parentFolder = findFolder(accountId, folderId) ?: return@performOperation notFound()
@@ -94,11 +94,32 @@ internal class DefaultFolderManagementRepository(
         }
 
         val serverId = FolderServerIdHelper.buildServerId(parentServerId, trimmedName, delimiter)
-        if (folderExists(accountId, serverId)) {
+        val existingFolders = getRemoteFolders(accountId)
+        if (existingFolders.any { it.serverId == serverId }) {
             return@performOperation Outcome.failure(FolderManagementError.AlreadyExists)
         }
 
-        folderHierarchyUpdater.create(accountId, serverId)
+        folderHierarchyUpdater.create(accountId, serverId).fold(
+            onSuccess = {
+                val existingFolderIds = existingFolders.map { it.id }.toSet()
+                Outcome.success(findNewFolderId(accountId, existingFolderIds, serverId))
+            },
+            onFailure = { error -> Outcome.failure(error) },
+        )
+    }
+
+    /**
+     * Finds the ID of a folder that was just created by comparing the folder list with the list before.
+     *
+     * The server ID of the new folder can differ from [serverId], e.g. when the server adds a namespace prefix.
+     */
+    private suspend fun findNewFolderId(accountId: AccountId, existingFolderIds: Set<Long>, serverId: String): Long? {
+        val newFolders = remoteFolderQueryRepository.getAllByAccountId(accountId).fold(
+            onSuccess = { folders -> folders.filterNot { it.id in existingFolderIds } },
+            onFailure = { emptyList() },
+        )
+
+        return (newFolders.firstOrNull { it.serverId == serverId } ?: newFolders.singleOrNull())?.id
     }
 
     override suspend fun rename(

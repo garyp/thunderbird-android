@@ -1,8 +1,10 @@
 package com.fsck.k9.ui.managefolders
 
+import android.content.Context
 import android.widget.Toast
 import androidx.fragment.app.DialogFragment
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.FragmentManager
 import com.fsck.k9.fragment.ProgressDialogFragment
 import com.fsck.k9.ui.R
 import net.thunderbird.feature.mail.folder.api.FolderNameError
@@ -29,13 +31,16 @@ data class FolderOperationEvent(
 }
 
 internal fun Fragment.setFolderOperationProgressVisible(visible: Boolean) {
-    val fragmentManager = childFragmentManager
+    setFolderOperationProgressVisible(requireContext(), childFragmentManager, visible)
+}
+
+internal fun setFolderOperationProgressVisible(context: Context, fragmentManager: FragmentManager, visible: Boolean) {
     val progressDialog = fragmentManager.findFragmentByTag(TAG_PROGRESS_DIALOG) as? DialogFragment
 
     if (visible && progressDialog == null) {
         ProgressDialogFragment.newInstance(
             title = null,
-            message = getString(R.string.folder_operation_in_progress),
+            message = context.getString(R.string.folder_operation_in_progress),
         ).apply {
             isCancelable = false
         }.show(fragmentManager, TAG_PROGRESS_DIALOG)
@@ -45,6 +50,10 @@ internal fun Fragment.setFolderOperationProgressVisible(visible: Boolean) {
 }
 
 internal fun Fragment.showFolderOperationResult(event: FolderOperationEvent) {
+    requireContext().showFolderOperationResult(event)
+}
+
+internal fun Context.showFolderOperationResult(event: FolderOperationEvent) {
     val message = when (val error = event.error) {
         null -> getSuccessMessage(event.operation)
         is FolderManagementError.InvalidName -> getInvalidNameMessage(error.error)
@@ -59,10 +68,10 @@ internal fun Fragment.showFolderOperationResult(event: FolderOperationEvent) {
         FolderManagementError.Failed -> getString(R.string.folder_operation_error_failed)
     }
 
-    Toast.makeText(requireContext(), message, Toast.LENGTH_LONG).show()
+    Toast.makeText(this, message, Toast.LENGTH_LONG).show()
 }
 
-private fun Fragment.getSuccessMessage(operation: FolderOperation): String {
+private fun Context.getSuccessMessage(operation: FolderOperation): String {
     return when (operation) {
         FolderOperation.CREATE -> getString(R.string.folder_operation_created)
         FolderOperation.RENAME -> getString(R.string.folder_operation_renamed)
@@ -71,7 +80,7 @@ private fun Fragment.getSuccessMessage(operation: FolderOperation): String {
     }
 }
 
-private fun Fragment.getInvalidNameMessage(error: FolderNameError): String {
+private fun Context.getInvalidNameMessage(error: FolderNameError): String {
     return when (error) {
         FolderNameError.EMPTY -> getString(R.string.folder_name_error_empty)
         FolderNameError.CONTAINS_DELIMITER, FolderNameError.INVALID_CHARACTER -> {
@@ -81,7 +90,7 @@ private fun Fragment.getInvalidNameMessage(error: FolderNameError): String {
     }
 }
 
-private fun Fragment.getServerErrorMessage(serverMessage: String?): String {
+private fun Context.getServerErrorMessage(serverMessage: String?): String {
     val trimmedMessage = serverMessage?.let { sanitizeServerMessage(it) }
     return if (trimmedMessage.isNullOrEmpty()) {
         getString(R.string.folder_operation_error_server)

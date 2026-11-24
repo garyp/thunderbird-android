@@ -1,6 +1,7 @@
 package com.fsck.k9.ui.managefolders
 
 import net.thunderbird.components.core.outcome.Outcome
+import net.thunderbird.components.core.outcome.fold
 import net.thunderbird.feature.account.AccountId
 import net.thunderbird.feature.mail.folder.api.FolderManagementOptions
 import net.thunderbird.feature.mail.folder.api.data.FolderManagementError
@@ -10,6 +11,7 @@ internal class FakeFolderManagementRepository(
     var isSupported: Boolean = true,
     var options: FolderManagementOptions? = null,
     var outcome: Outcome<Unit, FolderManagementError> = Outcome.success(Unit),
+    var createdFolderId: Long? = null,
 ) : FolderManagementRepository {
     val createCalls = mutableListOf<CreateCall>()
     val renameCalls = mutableListOf<RenameCall>()
@@ -29,9 +31,12 @@ internal class FakeFolderManagementRepository(
         accountId: AccountId,
         parentFolderId: Long?,
         name: String,
-    ): Outcome<Unit, FolderManagementError> {
+    ): Outcome<Long?, FolderManagementError> {
         createCalls.add(CreateCall(accountId, parentFolderId, name))
-        return outcome
+        return outcome.fold(
+            onSuccess = { Outcome.success(createdFolderId) },
+            onFailure = { Outcome.failure(it) },
+        )
     }
 
     override suspend fun rename(

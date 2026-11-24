@@ -39,6 +39,11 @@ class DefaultFolderManagementRepositoryTest {
     private val localFolders = backendStorageFactory.backendStorage.folders
     private val remoteFolderOperations = FakeRemoteFolderOperations()
     private val refreshedAccounts = mutableListOf<AccountId>()
+
+    /**
+     * Simulates what a folder list refresh adds to the local folder list.
+     */
+    private var onRefresh: () -> Unit = {}
     private val testSubject = DefaultFolderManagementRepository(
         accountManager = accountManager,
         folderQueryRepository = folderRepository,
@@ -48,7 +53,10 @@ class DefaultFolderManagementRepositoryTest {
             remoteFolderCreatorFactory = remoteFolderOperations,
             remoteFolderRenamerFactory = remoteFolderOperations,
             remoteFolderDeleterFactory = remoteFolderOperations,
-            folderListRefresher = { accountId -> refreshedAccounts.add(accountId) },
+            folderListRefresher = { accountId ->
+                refreshedAccounts.add(accountId)
+                onRefresh()
+            },
             logger = TestLogger(),
             ioDispatcher = testDispatcher,
         ),
@@ -156,7 +164,7 @@ class DefaultFolderManagementRepositoryTest {
             val result = testSubject.create(accountId, parentFolderId = null, name = "  Projects ")
 
             // Assert
-            assertThat(result).isEqualTo(Outcome.success(Unit))
+            assertThat(result).isEqualTo(Outcome.success(null))
             assertThat(remoteFolderOperations.createdFolders).containsExactly("Projects")
             assertThat(refreshedAccounts).containsExactly(accountId)
         }
@@ -170,10 +178,39 @@ class DefaultFolderManagementRepositoryTest {
         val result = testSubject.create(accountId, parentFolderId = 1, name = "2026")
 
         // Assert
-        assertThat(result).isEqualTo(Outcome.success(Unit))
+        assertThat(result).isEqualTo(Outcome.success(null))
         assertThat(remoteFolderOperations.createdFolders).containsExactly("Work/2026")
         assertThat(refreshedAccounts).containsExactly(accountId)
     }
+
+    @Test
+    fun `create() should return the ID of the new folder from the refreshed folder list`() = runTest(testDispatcher) {
+        // Arrange
+        addFolder(id = 1, serverId = "INBOX/Work")
+        onRefresh = { addFolder(id = 2, serverId = "INBOX/Projects") }
+
+        // Act
+        val result = testSubject.create(accountId, parentFolderId = null, name = "Projects")
+
+        // Assert
+        assertThat(result).isEqualTo(Outcome.success(2L))
+    }
+
+    @Test
+    fun `create() should prefer the folder with the requested server ID if the refresh added several`() =
+        runTest(testDispatcher) {
+            // Arrange
+            onRefresh = {
+                addFolder(id = 1, serverId = "Other")
+                addFolder(id = 2, serverId = "Projects")
+            }
+
+            // Act
+            val result = testSubject.create(accountId, parentFolderId = null, name = "Projects")
+
+            // Assert
+            assertThat(result).isEqualTo(Outcome.success(2L))
+        }
 
     @Test
     fun `create() with invalid name should not contact server`() = runTest(testDispatcher) {

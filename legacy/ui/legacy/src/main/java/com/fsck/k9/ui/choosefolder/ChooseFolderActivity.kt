@@ -17,6 +17,11 @@ import com.fsck.k9.Preferences
 import com.fsck.k9.controller.MessagingController
 import com.fsck.k9.ui.R
 import com.fsck.k9.ui.base.BaseActivity
+import com.fsck.k9.ui.managefolders.FolderNameDialogFragment
+import com.fsck.k9.ui.managefolders.FolderOperation
+import com.fsck.k9.ui.managefolders.FolderOperationEvent
+import com.fsck.k9.ui.managefolders.setFolderOperationProgressVisible
+import com.fsck.k9.ui.managefolders.showFolderOperationResult
 import com.mikepenz.fastadapter.FastAdapter
 import com.mikepenz.fastadapter.adapters.ItemAdapter
 import java.util.Locale
@@ -41,6 +46,7 @@ class ChooseFolderActivity : BaseActivity() {
     private var currentFolderId: Long? = null
     private var excludedFolderIds: Set<Long> = emptySet()
     private var showTopLevel = false
+    private var isFolderManagementSupported = false
     private var scrollToFolderId: Long? = null
     private var messageReference: String? = null
 
@@ -71,6 +77,56 @@ class ChooseFolderActivity : BaseActivity() {
         val showHiddenFolders = savedShowHiddenFolders ?: false
 
         viewModel.setDisplayMode(account, showHiddenFolders)
+
+        if (action.canCreateFolder) initializeCreateFolder()
+    }
+
+    private fun initializeCreateFolder() {
+        viewModel.getFolderManagementSupported(account).observe(this) { isSupported ->
+            isFolderManagementSupported = isSupported
+            invalidateOptionsMenu()
+        }
+
+        viewModel.getOperationInProgress().observe(this) { inProgress ->
+            setFolderOperationProgressVisible(this, supportFragmentManager, inProgress)
+        }
+
+        viewModel.getCreateFolderResults().observe(this) { result ->
+            handleCreateFolderResult(result)
+        }
+
+        supportFragmentManager.setFragmentResultListener(REQUEST_CREATE_FOLDER, this) { _, result ->
+            result.getString(FolderNameDialogFragment.RESULT_FOLDER_NAME)?.let { name ->
+                viewModel.createFolder(account, name)
+            }
+        }
+    }
+
+    private fun showCreateFolderDialog() {
+        FolderNameDialogFragment.show(
+            fragmentManager = supportFragmentManager,
+            requestKey = REQUEST_CREATE_FOLDER,
+            title = getString(R.string.create_folder_dialog_title),
+            confirmText = getString(R.string.create_folder_dialog_confirm_action),
+            folderPathDelimiter = account.folderPathDelimiter,
+            isTopLevel = true,
+        )
+    }
+
+    private fun handleCreateFolderResult(result: CreateFolderResult) {
+        when (result) {
+            is CreateFolderResult.Created -> {
+                val folderId = result.folderId
+                if (folderId != null) {
+                    // Choose the new folder right away, e.g. to move a message into it.
+                    returnResult(folderId, result.displayName)
+                } else {
+                    // The folder isn't in the folder list yet. The user can choose it once it shows up.
+                    showFolderOperationResult(FolderOperationEvent(FolderOperation.CREATE, error = null))
+                }
+            }
+            is CreateFolderResult.Failed -> showFolderOperationResult(result.event)
+        }
     }
 
     private fun decodeArguments(savedInstanceState: Bundle?): Boolean {
@@ -169,6 +225,7 @@ class ChooseFolderActivity : BaseActivity() {
 
     override fun onPrepareOptionsMenu(menu: Menu?): Boolean {
         menu?.findItem(R.id.toggle_hidden_folders)?.setChecked(viewModel.isShowHiddenFolders)
+        menu?.findItem(R.id.create_folder)?.isVisible = action.canCreateFolder && isFolderManagementSupported
         return super.onPrepareOptionsMenu(menu)
     }
 
@@ -195,6 +252,7 @@ class ChooseFolderActivity : BaseActivity() {
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
             android.R.id.home -> finish()
+            R.id.create_folder -> showCreateFolderDialog()
             R.id.toggle_hidden_folders -> setShowHiddenFolders(item.isChecked.not())
             R.id.list_folders -> refreshFolderList()
             else -> return super.onOptionsItemSelected(item)
@@ -249,6 +307,9 @@ class ChooseFolderActivity : BaseActivity() {
 
     private fun String.toAction() = Action.valueOf(this)
 
+    private val Action.canCreateFolder: Boolean
+        get() = this == Action.MOVE || this == Action.COPY || this == Action.CHOOSE_PARENT
+
     enum class Action {
         MOVE,
         COPY,
@@ -270,6 +331,7 @@ class ChooseFolderActivity : BaseActivity() {
         private const val EXTRA_EXCLUDED_FOLDER_IDS = "excludedFolderIds"
         private const val EXTRA_SHOW_TOP_LEVEL = "showTopLevel"
         private const val TOP_LEVEL_ID = -1L
+        private const val REQUEST_CREATE_FOLDER = "create_folder"
         const val RESULT_SELECTED_FOLDER_ID = "selectedFolderId"
         const val RESULT_FOLDER_DISPLAY_NAME = "folderDisplayName"
         const val RESULT_MESSAGE_REFERENCE = "messageReference"

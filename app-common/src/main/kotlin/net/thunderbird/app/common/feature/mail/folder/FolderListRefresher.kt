@@ -1,6 +1,9 @@
 package net.thunderbird.app.common.feature.mail.folder
 
 import com.fsck.k9.controller.MessagingController
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import net.thunderbird.core.android.account.LegacyAccountDtoManager
 import net.thunderbird.feature.account.AccountId
 
@@ -9,17 +12,18 @@ import net.thunderbird.feature.account.AccountId
  */
 internal fun interface FolderListRefresher {
     /**
-     * Requests the refresh. It runs in the background, so it may not have finished when this function returns.
+     * Refreshes the folder list and returns when the refresh has finished. Failures are ignored.
      */
-    fun refresh(accountId: AccountId)
+    suspend fun refresh(accountId: AccountId)
 }
 
 internal class MessagingControllerFolderListRefresher(
     private val accountManager: LegacyAccountDtoManager,
     private val messagingController: MessagingController,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : FolderListRefresher {
-    override fun refresh(accountId: AccountId) {
-        val account = accountManager.getAccount(accountId.toString()) ?: return
-        messagingController.refreshFolderList(account)
+    override suspend fun refresh(accountId: AccountId) = withContext(ioDispatcher) {
+        val account = accountManager.getAccount(accountId.toString()) ?: return@withContext
+        messagingController.refreshFolderListBlocking(account)
     }
 }

@@ -31,12 +31,15 @@ public interface FolderManagementRepository {
     /**
      * Creates a folder named [name] below the folder with the ID [parentFolderId], or at the top level if
      * [parentFolderId] is `null`.
+     *
+     * @return The ID of the new folder, or `null` if it couldn't be found in the local folder list after creating it,
+     *   e.g. because refreshing the folder list failed.
      */
     public suspend fun create(
         accountId: AccountId,
         parentFolderId: Long?,
         name: String,
-    ): Outcome<Unit, FolderManagementError>
+    ): Outcome<Long?, FolderManagementError>
 
     /**
      * Renames the folder with the given [folderId] to [newName], keeping it at the same level of the hierarchy.
