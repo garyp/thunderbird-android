@@ -4,5 +4,5 @@ import org.koin.core.module.dsl.viewModel
 import org.koin.dsl.module
 
 val chooseFolderUiModule = module {
-    viewModel { ChooseFolderViewModel(get()) }
+    viewModel { ChooseFolderViewModel(folderRepository = get(), folderManagementRepository = get()) }
 }

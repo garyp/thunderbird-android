@@ -17,6 +17,7 @@ internal object Capabilities {
     const val SPECIAL_USE: String = "SPECIAL-USE"
     const val UID_PLUS: String = "UIDPLUS"
     const val LIST_EXTENDED: String = "LIST-EXTENDED"
+    const val IMAP4REV2: String = "IMAP4REV2"
     const val MOVE: String = "MOVE"
     const val ENABLE: String = "ENABLE"
     const val CREATE_SPECIAL_USE: String = "CREATE-SPECIAL-USE"

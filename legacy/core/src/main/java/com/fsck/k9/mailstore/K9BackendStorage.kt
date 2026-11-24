@@ -72,6 +72,10 @@ class K9BackendStorage(
             messageStore.changeFolder(folderServerId, name, type)
         }
 
+        override fun renameFolder(folderServerId: String, newFolderServerId: String, name: String) {
+            messageStore.renameFolder(folderServerId, newFolderServerId, name)
+        }
+
         override fun close() {
             listeners.forEach { runBlocking { it.onAfterFolderListRefresh() } }
         }

@@ -4,12 +4,13 @@ import org.koin.core.module.dsl.viewModel
 import org.koin.dsl.module
 
 val manageFoldersUiModule = module {
-    viewModel { ManageFoldersViewModel(folderRepository = get()) }
+    viewModel { ManageFoldersViewModel(folderRepository = get(), folderManagementRepository = get()) }
     viewModel {
         FolderSettingsViewModel(
             preferences = get(),
             folderDetailsRepository = get(),
             messagingController = get(),
+            folderManagementRepository = get(),
         )
     }
 }

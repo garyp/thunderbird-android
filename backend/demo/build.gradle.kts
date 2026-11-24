@@ -10,10 +10,12 @@ dependencies {
     api(projects.backend.api)
 
     implementation(projects.core.common)
+    implementation(projects.feature.account.api)
     implementation(projects.feature.mail.folder.api)
 
     implementation(libs.kotlinx.serialization.json)
 
+    testImplementation(projects.backend.testing)
     testImplementation(projects.mail.testing)
 }
 

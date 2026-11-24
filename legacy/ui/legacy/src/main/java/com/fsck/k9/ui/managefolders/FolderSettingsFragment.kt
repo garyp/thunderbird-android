@@ -15,7 +15,9 @@ import com.fsck.k9.fragment.ConfirmationDialogFragment
 import com.fsck.k9.fragment.ConfirmationDialogFragment.ConfirmationDialogFragmentListener
 import com.fsck.k9.ui.R
 import com.fsck.k9.ui.base.livedata.observeNotNull
+import com.fsck.k9.ui.choosefolder.ChooseParentFolderResultContract
 import com.takisoft.preferencex.PreferenceFragmentCompat
+import net.thunderbird.feature.mail.folder.api.Folder
 import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
 import com.fsck.k9.ui.base.R as BaseR
@@ -23,6 +25,10 @@ import com.fsck.k9.ui.base.R as BaseR
 class FolderSettingsFragment : PreferenceFragmentCompat(), ConfirmationDialogFragmentListener {
     private val viewModel: FolderSettingsViewModel by viewModel()
     private val folderNameFormatter: FolderNameFormatter by inject()
+
+    private val chooseParentFolderLauncher = registerForActivityResult(ChooseParentFolderResultContract()) { result ->
+        result?.let { viewModel.onMoveFolder(it.parentFolderId) }
+    }
 
     override fun onCreatePreferencesFix(savedInstanceState: Bundle?, rootKey: String?) {
         // Set empty preferences resource while data is being loaded
@@ -40,12 +46,33 @@ class FolderSettingsFragment : PreferenceFragmentCompat(), ConfirmationDialogFra
 
                     val clearFolderItem = menu.findItem(R.id.clear_local_folder)
                     clearFolderItem.isVisible = viewModel.showClearFolderInMenu
+
+                    menu.findItem(R.id.create_subfolder).isVisible = viewModel.showCreateSubfolderInMenu
+                    menu.findItem(R.id.rename_folder).isVisible = viewModel.showRenameFolderInMenu
+                    menu.findItem(R.id.move_folder).isVisible = viewModel.showMoveFolderInMenu
+                    menu.findItem(R.id.delete_folder).isVisible = viewModel.showDeleteFolderInMenu
                 }
 
                 override fun onMenuItemSelected(menuItem: MenuItem): Boolean {
                     return when (menuItem.itemId) {
                         R.id.clear_local_folder -> {
                             viewModel.showClearFolderConfirmationDialog()
+                            true
+                        }
+                        R.id.create_subfolder -> {
+                            viewModel.showCreateSubfolderDialog()
+                            true
+                        }
+                        R.id.move_folder -> {
+                            viewModel.showMoveFolderPicker()
+                            true
+                        }
+                        R.id.rename_folder -> {
+                            viewModel.showRenameFolderDialog()
+                            true
+                        }
+                        R.id.delete_folder -> {
+                            viewModel.showDeleteFolderConfirmationDialog()
                             true
                         }
                         else -> false
@@ -69,6 +96,18 @@ class FolderSettingsFragment : PreferenceFragmentCompat(), ConfirmationDialogFra
             }
 
         viewModel.getActionEvents().observeNotNull(this) { handleActionEvents(it) }
+
+        viewModel.getOperationInProgress().observeNotNull(viewLifecycleOwner) { inProgress ->
+            setFolderOperationProgressVisible(inProgress)
+        }
+
+        childFragmentManager.setFragmentResultListener(REQUEST_CREATE_SUBFOLDER, viewLifecycleOwner) { _, result ->
+            result.getString(FolderNameDialogFragment.RESULT_FOLDER_NAME)?.let { viewModel.onCreateSubfolder(it) }
+        }
+
+        childFragmentManager.setFragmentResultListener(REQUEST_RENAME_FOLDER, viewLifecycleOwner) { _, result ->
+            result.getString(FolderNameDialogFragment.RESULT_FOLDER_NAME)?.let { viewModel.onRenameFolder(it) }
+        }
     }
 
     private fun navigateBack() {
@@ -96,7 +135,75 @@ class FolderSettingsFragment : PreferenceFragmentCompat(), ConfirmationDialogFra
     private fun handleActionEvents(action: Action) {
         when (action) {
             is Action.ShowClearFolderConfirmationDialog -> showClearFolderConfirmationDialog()
+            is Action.ShowCreateSubfolderDialog -> showCreateSubfolderDialog(action)
+            is Action.ShowRenameFolderDialog -> showRenameFolderDialog(action)
+            is Action.ShowMoveFolderPicker -> showMoveFolderPicker(action)
+            is Action.ShowDeleteFolderConfirmationDialog -> showDeleteFolderConfirmationDialog()
+            is Action.ShowFolderOperationResult -> handleFolderOperationResult(action)
         }
+    }
+
+    private fun showCreateSubfolderDialog(action: Action.ShowCreateSubfolderDialog) {
+        FolderNameDialogFragment.show(
+            fragmentManager = childFragmentManager,
+            requestKey = REQUEST_CREATE_SUBFOLDER,
+            title = getString(R.string.create_subfolder_dialog_title),
+            confirmText = getString(R.string.create_folder_dialog_confirm_action),
+            folderPathDelimiter = action.folderPathDelimiter,
+            isTopLevel = false,
+        )
+    }
+
+    private fun showMoveFolderPicker(action: Action.ShowMoveFolderPicker) {
+        chooseParentFolderLauncher.launch(
+            ChooseParentFolderResultContract.Input(
+                accountUuid = action.accountUuid,
+                folderId = action.folderId,
+                excludedFolderIds = action.excludedFolderIds,
+                showTopLevel = action.showTopLevel,
+            ),
+        )
+    }
+
+    private fun showRenameFolderDialog(action: Action.ShowRenameFolderDialog) {
+        FolderNameDialogFragment.show(
+            fragmentManager = childFragmentManager,
+            requestKey = REQUEST_RENAME_FOLDER,
+            title = getString(R.string.rename_folder_dialog_title),
+            confirmText = getString(R.string.rename_folder_dialog_confirm_action),
+            folderPathDelimiter = action.folderPathDelimiter,
+            isTopLevel = action.isTopLevel,
+            initialName = action.currentName,
+        )
+    }
+
+    private fun showDeleteFolderConfirmationDialog() {
+        val dialogFragment = ConfirmationDialogFragment.newInstance(
+            DIALOG_DELETE_FOLDER,
+            getString(R.string.dialog_confirm_delete_folder_title),
+            getString(R.string.dialog_confirm_delete_folder_message),
+            getString(R.string.dialog_confirm_delete_folder_action),
+            getString(BaseR.string.cancel_action),
+        )
+        dialogFragment.setTargetFragment(this, REQUEST_DELETE_FOLDER)
+        dialogFragment.show(requireFragmentManager(), TAG_DELETE_FOLDER_CONFIRMATION)
+    }
+
+    private fun handleFolderOperationResult(action: Action.ShowFolderOperationResult) {
+        val event = action.event
+        showFolderOperationResult(event)
+
+        action.updatedFolder?.let { updateFolder(it) }
+
+        if (event.operation == FolderOperation.DELETE && event.isSuccess) {
+            navigateBack()
+        }
+    }
+
+    private fun updateFolder(folder: Folder) {
+        val folderDisplayName = folderNameFormatter.displayName(folder)
+        findPreference<Preference>(PREFERENCE_TOP_CATEGORY)?.title = folderDisplayName
+        updateMenu()
     }
 
     private fun showClearFolderConfirmationDialog() {
@@ -124,6 +231,9 @@ class FolderSettingsFragment : PreferenceFragmentCompat(), ConfirmationDialogFra
             DIALOG_CLEAR_FOLDER -> {
                 viewModel.onClearFolderConfirmation()
             }
+            DIALOG_DELETE_FOLDER -> {
+                viewModel.onDeleteFolderConfirmation()
+            }
         }
     }
 
@@ -142,6 +252,13 @@ class FolderSettingsFragment : PreferenceFragmentCompat(), ConfirmationDialogFra
         private const val DIALOG_CLEAR_FOLDER = 1
         private const val REQUEST_CLEAR_FOLDER = 1
         private const val TAG_CLEAR_FOLDER_CONFIRMATION = "clear_folder_confirmation"
+
+        private const val DIALOG_DELETE_FOLDER = 2
+        private const val REQUEST_DELETE_FOLDER = 2
+        private const val TAG_DELETE_FOLDER_CONFIRMATION = "delete_folder_confirmation"
+
+        private const val REQUEST_CREATE_SUBFOLDER = "create_subfolder"
+        private const val REQUEST_RENAME_FOLDER = "rename_folder"
 
         private const val PREFERENCE_TOP_CATEGORY = "folder_settings"
         private const val PREFERENCE_SYNC = "folder_settings_sync"

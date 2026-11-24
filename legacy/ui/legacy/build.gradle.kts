@@ -93,6 +93,7 @@ dependencies {
     testImplementation(projects.feature.telemetry.noop)
 
     testImplementation(libs.androidx.test.core)
+    testImplementation(libs.androidx.fragment.testing)
     testImplementation(libs.mockito.kotlin)
     testImplementation(libs.robolectric)
 }

@@ -218,6 +218,10 @@ class K9MessageStore(
         updateFolderOperations.changeFolder(folderServerId, name, type)
     }
 
+    override fun renameFolder(folderServerId: String, newFolderServerId: String, name: String) {
+        updateFolderOperations.renameFolder(folderServerId, newFolderServerId, name)
+    }
+
     override fun updateFolderSettings(folderDetails: FolderDetails) {
         updateFolderOperations.updateFolderSettings(folderDetails)
     }

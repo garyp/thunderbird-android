@@ -47,6 +47,26 @@ class UpdateFolderOperationsTest : RobolectricTest() {
     }
 
     @Test
+    fun `rename folder`() {
+        val folderId = sqliteDatabase.createFolder(serverId = "Old", name = "Old", type = "regular", visible = false)
+        sqliteDatabase.createFolder(serverId = "Other", name = "Other", type = "regular")
+
+        updateFolderOperations.renameFolder(
+            folderServerId = "Old",
+            newFolderServerId = "Parent/New",
+            name = "Parent/New",
+        )
+
+        val folder = sqliteDatabase.readFolders().first { it.id == folderId }
+        assertThat(folder.serverId).isEqualTo("Parent/New")
+        assertThat(folder.name).isEqualTo("Parent/New")
+        assertThat(folder.type).isEqualTo("regular")
+        assertThat(folder.visible).isEqualTo(0)
+        val otherFolder = sqliteDatabase.readFolders().first { it.id != folderId }
+        assertThat(otherFolder.serverId).isEqualTo("Other")
+    }
+
+    @Test
     fun `update folder settings`() {
         val folderId = sqliteDatabase.createFolder(
             inTopGroup = false,

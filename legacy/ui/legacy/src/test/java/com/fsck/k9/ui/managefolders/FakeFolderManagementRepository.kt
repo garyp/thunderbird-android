@@ -1,0 +1,69 @@
+package com.fsck.k9.ui.managefolders
+
+import net.thunderbird.components.core.outcome.Outcome
+import net.thunderbird.components.core.outcome.fold
+import net.thunderbird.feature.account.AccountId
+import net.thunderbird.feature.mail.folder.api.FolderManagementOptions
+import net.thunderbird.feature.mail.folder.api.data.FolderManagementError
+import net.thunderbird.feature.mail.folder.api.data.repository.FolderManagementRepository
+
+internal class FakeFolderManagementRepository(
+    var isSupported: Boolean = true,
+    var options: FolderManagementOptions? = null,
+    var outcome: Outcome<Unit, FolderManagementError> = Outcome.success(Unit),
+    var createdFolderId: Long? = null,
+) : FolderManagementRepository {
+    val createCalls = mutableListOf<CreateCall>()
+    val renameCalls = mutableListOf<RenameCall>()
+    val deleteCalls = mutableListOf<DeleteCall>()
+    val moveCalls = mutableListOf<MoveCall>()
+
+    override suspend fun isSupported(accountId: AccountId): Boolean = isSupported
+
+    override suspend fun getOptions(
+        accountId: AccountId,
+        folderId: Long,
+    ): Outcome<FolderManagementOptions, FolderManagementError> {
+        return options?.let { Outcome.success(it) } ?: Outcome.failure(FolderManagementError.FolderNotFound)
+    }
+
+    override suspend fun create(
+        accountId: AccountId,
+        parentFolderId: Long?,
+        name: String,
+    ): Outcome<Long?, FolderManagementError> {
+        createCalls.add(CreateCall(accountId, parentFolderId, name))
+        return outcome.fold(
+            onSuccess = { Outcome.success(createdFolderId) },
+            onFailure = { Outcome.failure(it) },
+        )
+    }
+
+    override suspend fun rename(
+        accountId: AccountId,
+        folderId: Long,
+        newName: String,
+    ): Outcome<Unit, FolderManagementError> {
+        renameCalls.add(RenameCall(accountId, folderId, newName))
+        return outcome
+    }
+
+    override suspend fun move(
+        accountId: AccountId,
+        folderId: Long,
+        newParentFolderId: Long?,
+    ): Outcome<Unit, FolderManagementError> {
+        moveCalls.add(MoveCall(accountId, folderId, newParentFolderId))
+        return outcome
+    }
+
+    override suspend fun delete(accountId: AccountId, folderId: Long): Outcome<Unit, FolderManagementError> {
+        deleteCalls.add(DeleteCall(accountId, folderId))
+        return outcome
+    }
+
+    data class CreateCall(val accountId: AccountId, val parentFolderId: Long?, val name: String)
+    data class RenameCall(val accountId: AccountId, val folderId: Long, val newName: String)
+    data class MoveCall(val accountId: AccountId, val folderId: Long, val newParentFolderId: Long?)
+    data class DeleteCall(val accountId: AccountId, val folderId: Long)
+}

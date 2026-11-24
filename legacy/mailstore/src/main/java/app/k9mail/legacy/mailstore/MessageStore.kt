@@ -255,6 +255,16 @@ interface MessageStore {
     fun changeFolder(folderServerId: String, name: String, type: FolderType)
 
     /**
+     * Change a folder's server ID and name, e.g. after the folder was renamed on the server.
+     *
+     * Messages and settings of the folder are retained.
+     *
+     * @throws MessagingException in case it fails changing the folder in the local database.
+     */
+    @Throws(MessagingException::class)
+    fun renameFolder(folderServerId: String, newFolderServerId: String, name: String)
+
+    /**
      * Update settings of a single folder.
      */
     fun updateFolderSettings(folderDetails: FolderDetails)

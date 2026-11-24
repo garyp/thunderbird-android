@@ -11,6 +11,7 @@ import com.fsck.k9.mail.FolderType
 import com.fsck.k9.mail.folders.FolderServerId
 import com.fsck.k9.mail.store.imap.FolderListItem
 import com.fsck.k9.mail.store.imap.ImapFolder
+import com.fsck.k9.mail.store.imap.ImapFolderOperationException
 import com.fsck.k9.mail.store.imap.ImapStore
 import kotlinx.coroutines.test.runTest
 import net.thunderbird.backend.api.folder.RemoteFolderCreationOutcome
@@ -75,6 +76,7 @@ class ImapRemoteFolderCreatorTest {
         val fakeFolder = object : TestImapFolder(folderServerId.serverId) {
             override fun exists(): Boolean = false
             override fun create(folderType: FolderType): Boolean = true
+            override fun subscribe() = Unit
         }
         val imapStore = FakeImapStore(fakeFolder)
         val sut = ImapRemoteFolderCreator(logger, imapStore)
@@ -90,6 +92,51 @@ class ImapRemoteFolderCreatorTest {
                 .prop("data") { it.data }
                 .isEqualTo(RemoteFolderCreationOutcome.Success.Created)
         }
+    }
+
+    @Test
+    fun `when folder is created, should subscribe to it`() = runTest {
+        // Arrange
+        val folderServerId = FolderServerId("New Folder")
+        var subscribed = false
+        val fakeFolder = object : TestImapFolder(folderServerId.serverId) {
+            override fun exists(): Boolean = false
+            override fun create(folderType: FolderType): Boolean = true
+            override fun subscribe() {
+                subscribed = true
+            }
+        }
+        val imapStore = FakeImapStore(fakeFolder)
+        val sut = ImapRemoteFolderCreator(logger, imapStore)
+
+        // Act
+        sut.create(folderServerId, mustCreate = true)
+
+        // Assert
+        assertThat(subscribed).isTrue()
+    }
+
+    @Test
+    fun `when server refuses to create the folder, should return RejectedByServer with server message`() = runTest {
+        // Arrange
+        val folderServerId = FolderServerId("New Folder")
+        val fakeFolder = object : TestImapFolder(folderServerId.serverId) {
+            override fun exists(): Boolean = false
+            override fun create(folderType: FolderType): Boolean {
+                throw ImapFolderOperationException("CREATE command failed", responseText = "Permission denied")
+            }
+        }
+        val imapStore = FakeImapStore(fakeFolder)
+        val sut = ImapRemoteFolderCreator(logger, imapStore)
+
+        // Act
+        val outcome = sut.create(folderServerId, mustCreate = true)
+
+        // Assert
+        assertThat(outcome)
+            .isInstanceOf<Outcome.Failure<RemoteFolderCreationOutcome.Error>>()
+            .prop("error") { it.error }
+            .isEqualTo(RemoteFolderCreationOutcome.Error.RejectedByServer(serverMessage = "Permission denied"))
     }
 
     @Test

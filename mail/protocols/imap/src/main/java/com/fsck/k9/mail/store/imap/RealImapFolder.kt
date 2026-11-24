@@ -72,29 +72,32 @@ internal class RealImapFolder(
 
     @get:Throws(MessagingException::class)
     private val prefixedName: String
-        get() {
-            val imapPrefix = if (!INBOX.equals(serverId, ignoreCase = true)) {
-                val connection = synchronized(this) {
-                    this.connection ?: connectionManager.getConnection()
-                }
+        get() = getPrefixedName(serverId)
 
-                try {
-                    connection.open()
-                } catch (ioe: IOException) {
-                    throw MessagingException("Unable to get IMAP prefix", ioe)
-                } finally {
-                    if (this.connection == null) {
-                        connectionManager.releaseConnection(connection)
-                    }
-                }
-                internalImapStore.combinedPrefix.orEmpty()
-            } else {
-                ""
+    @Throws(MessagingException::class)
+    private fun getPrefixedName(serverId: String): String {
+        val imapPrefix = if (!INBOX.equals(serverId, ignoreCase = true)) {
+            val connection = synchronized(this) {
+                this.connection ?: connectionManager.getConnection()
             }
-            val normalizedServerId = serverId.removePrefix(imapPrefix)
 
-            return "$imapPrefix$normalizedServerId"
+            try {
+                connection.open()
+            } catch (ioe: IOException) {
+                throw MessagingException("Unable to get IMAP prefix", ioe)
+            } finally {
+                if (this.connection == null) {
+                    connectionManager.releaseConnection(connection)
+                }
+            }
+            internalImapStore.combinedPrefix.orEmpty()
+        } else {
+            ""
         }
+        val normalizedServerId = serverId.removePrefix(imapPrefix)
+
+        return "$imapPrefix$normalizedServerId"
+    }
 
     @get:Throws(MessagingException::class)
     private val encodedName: String
@@ -252,10 +255,9 @@ internal class RealImapFolder(
             this.connection ?: connectionManager.getConnection()
         }
 
-        val hasSpecialUseCapability = connection.hasCapability(Capabilities.CREATE_SPECIAL_USE)
-
         return try {
-            val escapedFolderName = ImapUtility.encodeString(encodedName)
+            val hasSpecialUseCapability = connection.hasCapability(Capabilities.CREATE_SPECIAL_USE)
+            val escapedFolderName = getQuotedMailboxName(serverId)
 
             // https://www.rfc-editor.org/rfc/rfc6154.html#section-5.3
             val specialUseAttribute = folderType
@@ -273,10 +275,175 @@ internal class RealImapFolder(
             val responses = connection.executeSimpleCommand(command)
             responses.any { ImapResponseParser.equalsIgnoreCase(it[0], Responses.OK) }
         } catch (e: NegativeImapResponseException) {
-            Log.e(e, "Unable to create folder %s for %s", serverId, logId)
-            false
+            throw ImapFolderOperationException(
+                message = "CREATE command failed",
+                responseText = e.responseText,
+                cause = e,
+            )
         } catch (ioe: IOException) {
             throw ioExceptionHandler(this.connection, ioe)
+        } finally {
+            if (this.connection == null) {
+                connectionManager.releaseConnection(connection)
+            }
+        }
+    }
+
+    @Throws(MessagingException::class)
+    override fun delete() {
+        if (INBOX.equals(serverId, ignoreCase = true)) {
+            throw ImapFolderOperationException("INBOX can't be deleted", responseText = null)
+        }
+
+        // Don't keep the folder selected while deleting it
+        close()
+
+        // https://www.rfc-editor.org/rfc/rfc9051.html#section-6.3.5
+        executeMailboxCommand(commandName = "DELETE") {
+            "DELETE ${getQuotedMailboxName(serverId)}"
+        }
+
+        exists = false
+    }
+
+    @Throws(MessagingException::class)
+    override fun rename(newServerId: String) {
+        // Renaming INBOX has special semantics: it moves all messages to a new folder and leaves INBOX empty.
+        // See https://www.rfc-editor.org/rfc/rfc9051.html#section-6.3.6
+        if (INBOX.equals(serverId, ignoreCase = true) || INBOX.equals(newServerId, ignoreCase = true)) {
+            throw ImapFolderOperationException("Renaming INBOX is not supported", responseText = null)
+        }
+
+        // Don't keep the folder selected while renaming it
+        close()
+
+        executeMailboxCommand(commandName = "RENAME") {
+            "RENAME ${getQuotedMailboxName(serverId)} ${getQuotedMailboxName(newServerId)}"
+        }
+
+        exists = false
+    }
+
+    @Throws(MessagingException::class)
+    override fun subscribe() {
+        // https://www.rfc-editor.org/rfc/rfc9051.html#section-6.3.7
+        executeMailboxCommand(commandName = "SUBSCRIBE") {
+            "SUBSCRIBE ${getQuotedMailboxName(serverId)}"
+        }
+    }
+
+    @Throws(MessagingException::class)
+    override fun unsubscribe() {
+        // https://www.rfc-editor.org/rfc/rfc9051.html#section-6.3.8
+        executeMailboxCommand(commandName = "UNSUBSCRIBE") {
+            "UNSUBSCRIBE ${getQuotedMailboxName(serverId)}"
+        }
+    }
+
+    @Throws(MessagingException::class)
+    override fun isSubscribed(): Boolean {
+        var useListSubscribed = false
+        val responses = executeMailboxCommand(commandName = "LIST/LSUB") { connection ->
+            // LSUB was removed in IMAP4rev2 (RFC 9051, appendix E). Servers supporting IMAP4rev2 or LIST-EXTENDED
+            // (RFC 5258) return the \Subscribed attribute when asked for it with the SUBSCRIBED selection option.
+            useListSubscribed = connection.hasCapability(Capabilities.IMAP4REV2) ||
+                connection.hasCapability(Capabilities.LIST_EXTENDED)
+            val mailboxName = getQuotedMailboxName(serverId)
+            if (useListSubscribed) {
+                "LIST (SUBSCRIBED) \"\" $mailboxName"
+            } else {
+                // https://www.rfc-editor.org/rfc/rfc3501.html#section-6.3.9
+                "LSUB \"\" $mailboxName"
+            }
+        }
+
+        return if (useListSubscribed) {
+            ListResponse.parseList(responses).any { it.hasAttribute("\\Subscribed") }
+        } else {
+            ListResponse.parseLsub(responses).isNotEmpty()
+        }
+    }
+
+    @Throws(MessagingException::class)
+    override fun isListed(): Boolean {
+        return listMailbox() != null
+    }
+
+    @Throws(MessagingException::class)
+    override fun hasSubfolders(): Boolean {
+        val mailbox = listMailbox()
+        val delimiter = mailbox?.hierarchyDelimiter
+
+        return when {
+            mailbox == null -> false
+            mailbox.hasAttribute("\\HasChildren") -> true
+            mailbox.hasAttribute("\\HasNoChildren") -> false
+            delimiter.isNullOrEmpty() -> false
+            else -> listSubfolders(mailbox.name + delimiter).isNotEmpty()
+        }
+    }
+
+    /**
+     * Lists the folders on the next hierarchy level below this folder (RFC 9051, section 6.3.9).
+     */
+    @Throws(MessagingException::class)
+    private fun listSubfolders(subfolderPrefix: String): List<ListResponse> {
+        val pattern = ImapUtility.encodeString(folderNameCodec.encode("$subfolderPrefix%"))
+        val responses = executeMailboxCommand(commandName = "LIST") { "LIST \"\" $pattern" }
+
+        // The folder name itself may contain wildcard characters, so only return actual subfolders.
+        return ListResponse.parseList(responses).filter { it.name.startsWith(subfolderPrefix) }
+    }
+
+    /**
+     * Returns the `LIST` response for this folder, or `null` if the server doesn't list it.
+     */
+    @Throws(MessagingException::class)
+    private fun listMailbox(): ListResponse? {
+        val responses = executeMailboxCommand(commandName = "LIST") { "LIST \"\" ${getQuotedMailboxName(serverId)}" }
+        val name = getPrefixedName(serverId)
+
+        // The folder name may contain wildcard characters, so ignore responses for other folders.
+        return ListResponse.parseList(responses).firstOrNull { listResponse ->
+            listResponse.name == name && !listResponse.hasAttribute("\\NonExistent")
+        }
+    }
+
+    @Throws(MessagingException::class)
+    private fun getQuotedMailboxName(serverId: String): String {
+        // Mailbox names are sent as quoted strings, which can't contain CR, LF, or NUL (RFC 9051, section 4.3).
+        // Reject control characters here rather than relying on callers to validate the name.
+        if (serverId.any { it.isISOControl() }) {
+            throw ImapFolderOperationException("Folder name contains control characters", responseText = null)
+        }
+
+        return ImapUtility.encodeString(folderNameCodec.encode(getPrefixedName(serverId)))
+    }
+
+    /**
+     * Executes a command that doesn't require this folder to be selected, e.g. `DELETE` or `RENAME`.
+     *
+     * A tagged `NO` or `BAD` response is translated to [ImapFolderOperationException].
+     */
+    @Throws(MessagingException::class)
+    private fun executeMailboxCommand(
+        commandName: String,
+        buildCommand: (ImapConnection) -> String,
+    ): List<ImapResponse> {
+        val connection = synchronized(this) {
+            this.connection ?: connectionManager.getConnection()
+        }
+
+        return try {
+            connection.executeSimpleCommand(buildCommand(connection))
+        } catch (e: NegativeImapResponseException) {
+            throw ImapFolderOperationException(
+                message = "$commandName command failed",
+                responseText = e.responseText,
+                cause = e,
+            )
+        } catch (ioe: IOException) {
+            throw ioExceptionHandler(connection, ioe)
         } finally {
             if (this.connection == null) {
                 connectionManager.releaseConnection(connection)

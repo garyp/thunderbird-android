@@ -15,7 +15,7 @@ internal class CreateFolderOperations(
             for (folder in folders) {
                 val folderSettings = folder.settings
                 val values = ContentValues().apply {
-                    put("name", folder.name.replace("\\[(Gmail|Google Mail)]/".toRegex(), ""))
+                    put("name", removeGmailPrefix(folder.name))
                     put("visible_limit", folderSettings.visibleLimit)
                     put("integrate", folderSettings.integrate)
                     put("top_group", folderSettings.inTopGroup)

@@ -64,6 +64,16 @@ class InMemoryBackendStorage : BackendStorage {
             folder.type = type
         }
 
+        override fun renameFolder(folderServerId: String, newFolderServerId: String, name: String) {
+            if (folders.containsKey(newFolderServerId)) {
+                error("Folder $newFolderServerId already present")
+            }
+
+            val folder = folders.remove(folderServerId) ?: error("Folder $folderServerId not found")
+            folder.name = name
+            folders[newFolderServerId] = folder
+        }
+
         override fun close() = Unit
     }
 }
