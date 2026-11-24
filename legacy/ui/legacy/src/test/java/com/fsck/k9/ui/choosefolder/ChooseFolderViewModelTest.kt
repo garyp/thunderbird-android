@@ -52,7 +52,7 @@ class ChooseFolderViewModelTest {
         testSubject.getCreateFolderResults().observeForever { results.add(it) }
 
         // Act
-        testSubject.createFolder(account, name = " Receipts ")
+        testSubject.createFolder(account, parentFolderId = null, parentDisplayName = null, name = " Receipts ")
 
         // Assert
         assertThat(folderManagementRepository.createCalls).containsExactly(
@@ -70,13 +70,33 @@ class ChooseFolderViewModelTest {
         testSubject.getCreateFolderResults().observeForever { results.add(it) }
 
         // Act
-        testSubject.createFolder(account, name = "Receipts")
+        testSubject.createFolder(account, parentFolderId = null, parentDisplayName = null, name = "Receipts")
 
         // Assert
         assertThat(results).containsExactly(
             CreateFolderResult.Failed(
                 FolderOperationEvent(FolderOperation.CREATE, FolderManagementError.AlreadyExists),
             ),
+        )
+    }
+
+    @Test
+    fun `createFolder() with parent should create subfolder and report its full display name`() {
+        // Arrange
+        account.folderPathDelimiter = "."
+        folderManagementRepository.createdFolderId = 7L
+        val results = mutableListOf<CreateFolderResult>()
+        testSubject.getCreateFolderResults().observeForever { results.add(it) }
+
+        // Act
+        testSubject.createFolder(account, parentFolderId = 3L, parentDisplayName = "Shopping", name = "Receipts")
+
+        // Assert
+        assertThat(folderManagementRepository.createCalls).containsExactly(
+            FakeFolderManagementRepository.CreateCall(account.id, parentFolderId = 3L, name = "Receipts"),
+        )
+        assertThat(results).containsExactly(
+            CreateFolderResult.Created(folderId = 7L, displayName = "Shopping.Receipts"),
         )
     }
 

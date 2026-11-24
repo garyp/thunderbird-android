@@ -6,6 +6,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.view.Menu
 import android.view.MenuItem
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.widget.SearchView
 import androidx.recyclerview.widget.RecyclerView
 import app.k9mail.core.ui.legacy.designsystem.atom.icon.Icons
@@ -47,6 +48,19 @@ class ChooseFolderActivity : BaseActivity() {
     private var excludedFolderIds: Set<Long> = emptySet()
     private var showTopLevel = false
     private var isFolderManagementSupported = false
+
+    /**
+     * Whether the user is choosing the parent of a new folder ("Create folder in…") instead of choosing a folder.
+     */
+    private var isChoosingNewFolderParent = false
+    private var newFolderParentId: Long? = null
+    private var newFolderParentName: String? = null
+    private var displayFolders: List<DisplayFolder> = emptyList()
+    private val exitChoosingNewFolderParentCallback = object : OnBackPressedCallback(enabled = false) {
+        override fun handleOnBackPressed() {
+            setChoosingNewFolderParent(false)
+        }
+    }
     private var scrollToFolderId: Long? = null
     private var messageReference: String? = null
 
@@ -59,12 +73,14 @@ class ChooseFolderActivity : BaseActivity() {
             return
         }
 
-        when (action) {
-            Action.MOVE -> setTitle(R.string.choose_folder_move_title)
-            Action.COPY -> setTitle(R.string.choose_folder_copy_title)
-            Action.CHOOSE_PARENT -> setTitle(R.string.choose_folder_move_folder_title)
-            else -> setTitle(R.string.choose_folder_title)
+        if (savedInstanceState != null) {
+            isChoosingNewFolderParent = savedInstanceState.getBoolean(STATE_CHOOSING_NEW_FOLDER_PARENT)
+            newFolderParentId = savedInstanceState.getLongOrNull(STATE_NEW_FOLDER_PARENT_ID)
+            newFolderParentName = savedInstanceState.getString(STATE_NEW_FOLDER_PARENT_NAME)
         }
+        onBackPressedDispatcher.addCallback(this, exitChoosingNewFolderParentCallback)
+        exitChoosingNewFolderParentCallback.isEnabled = isChoosingNewFolderParent
+        updateTitle()
 
         initializeActionBar()
         initializeFolderList()
@@ -79,6 +95,27 @@ class ChooseFolderActivity : BaseActivity() {
         viewModel.setDisplayMode(account, showHiddenFolders)
 
         if (action.canCreateFolder) initializeCreateFolder()
+    }
+
+    private fun updateTitle() {
+        when {
+            isChoosingNewFolderParent -> setTitle(R.string.choose_folder_create_folder_in_title)
+            action == Action.MOVE -> setTitle(R.string.choose_folder_move_title)
+            action == Action.COPY -> setTitle(R.string.choose_folder_copy_title)
+            action == Action.CHOOSE_PARENT -> setTitle(R.string.choose_folder_move_folder_title)
+            else -> setTitle(R.string.choose_folder_title)
+        }
+    }
+
+    /**
+     * Switches between choosing a folder and choosing the parent of a new folder ("Create folder in…").
+     */
+    private fun setChoosingNewFolderParent(enabled: Boolean) {
+        isChoosingNewFolderParent = enabled
+        exitChoosingNewFolderParentCallback.isEnabled = enabled
+        updateTitle()
+        invalidateOptionsMenu()
+        updateFolderList(displayFolders)
     }
 
     private fun initializeCreateFolder() {
@@ -97,19 +134,30 @@ class ChooseFolderActivity : BaseActivity() {
 
         supportFragmentManager.setFragmentResultListener(REQUEST_CREATE_FOLDER, this) { _, result ->
             result.getString(FolderNameDialogFragment.RESULT_FOLDER_NAME)?.let { name ->
-                viewModel.createFolder(account, name)
+                viewModel.createFolder(
+                    account = account,
+                    parentFolderId = newFolderParentId?.takeUnless { it == TOP_LEVEL_ID },
+                    parentDisplayName = newFolderParentName,
+                    name = name,
+                )
             }
         }
     }
 
-    private fun showCreateFolderDialog() {
+    private fun showCreateFolderDialog(parent: FolderListItem) {
+        val isTopLevel = parent.databaseId == TOP_LEVEL_ID
+        newFolderParentId = parent.databaseId
+        newFolderParentName = if (isTopLevel) null else parent.displayName
+
         FolderNameDialogFragment.show(
             fragmentManager = supportFragmentManager,
             requestKey = REQUEST_CREATE_FOLDER,
-            title = getString(R.string.create_folder_dialog_title),
+            title = getString(
+                if (isTopLevel) R.string.create_folder_dialog_title else R.string.create_subfolder_dialog_title,
+            ),
             confirmText = getString(R.string.create_folder_dialog_confirm_action),
             folderPathDelimiter = account.folderPathDelimiter,
-            isTopLevel = true,
+            isTopLevel = isTopLevel,
         )
     }
 
@@ -123,8 +171,10 @@ class ChooseFolderActivity : BaseActivity() {
                 } else {
                     // The folder isn't in the folder list yet. The user can choose it once it shows up.
                     showFolderOperationResult(FolderOperationEvent(FolderOperation.CREATE, error = null))
+                    setChoosingNewFolderParent(false)
                 }
             }
+            // Stay in "Create folder in…", so the user can try again.
             is CreateFolderResult.Failed -> showFolderOperationResult(result.event)
         }
     }
@@ -162,7 +212,11 @@ class ChooseFolderActivity : BaseActivity() {
         val folderListAdapter = FastAdapter.with(itemAdapter).apply {
             setHasStableIds(true)
             onClickListener = { _, _, item: FolderListItem, _ ->
-                returnResult(item.databaseId, item.displayName)
+                if (isChoosingNewFolderParent) {
+                    showCreateFolderDialog(parent = item)
+                } else {
+                    returnResult(item.databaseId, item.displayName)
+                }
                 true
             }
         }
@@ -172,10 +226,14 @@ class ChooseFolderActivity : BaseActivity() {
     }
 
     private fun updateFolderList(displayFolders: List<DisplayFolder>) {
+        this.displayFolders = displayFolders
+
         val folderListItems = displayFolders.asSequence()
             .filterNot { it.folder.type == FolderType.OUTBOX }
-            .filterNot { it.folder.id == currentFolderId }
+            .filterNot { it.folder.id == currentFolderId && !canBeNewFolderParent(it) }
             .filterNot { it.folder.id in excludedFolderIds }
+            // Local-only folders can't have subfolders
+            .filterNot { isChoosingNewFolderParent && it.folder.isLocalOnly }
             .map { displayFolder ->
                 val databaseId = displayFolder.folder.id
                 val folderIconResource = folderIconProvider.getFolderIcon(displayFolder.folder.type)
@@ -184,11 +242,21 @@ class ChooseFolderActivity : BaseActivity() {
                 FolderListItem(databaseId, folderIconResource, displayName)
             }
             .toList()
-            .let { items -> if (showTopLevel) listOf(createTopLevelItem()) + items else items }
+            .let { items ->
+                if (showTopLevel || isChoosingNewFolderParent) listOf(createTopLevelItem()) + items else items
+            }
 
         itemAdapter.set(folderListItems)
 
         scrollToFolder(folderListItems)
+    }
+
+    /**
+     * When moving messages, the folder they are in can still be the parent of a new folder. When moving a folder, the
+     * folder itself can't.
+     */
+    private fun canBeNewFolderParent(displayFolder: DisplayFolder): Boolean {
+        return isChoosingNewFolderParent && action != Action.CHOOSE_PARENT && !displayFolder.folder.isLocalOnly
     }
 
     private fun createTopLevelItem(): FolderListItem {
@@ -214,6 +282,9 @@ class ChooseFolderActivity : BaseActivity() {
         super.onSaveInstanceState(outState)
         scrollToFolderId?.let { folderId -> outState.putLong(STATE_SCROLL_TO_FOLDER_ID, folderId) }
         outState.putBoolean(STATE_SHOW_HIDDEN_FOLDERS, viewModel.isShowHiddenFolders)
+        outState.putBoolean(STATE_CHOOSING_NEW_FOLDER_PARENT, isChoosingNewFolderParent)
+        newFolderParentId?.let { outState.putLong(STATE_NEW_FOLDER_PARENT_ID, it) }
+        outState.putString(STATE_NEW_FOLDER_PARENT_NAME, newFolderParentName)
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -225,7 +296,8 @@ class ChooseFolderActivity : BaseActivity() {
 
     override fun onPrepareOptionsMenu(menu: Menu?): Boolean {
         menu?.findItem(R.id.toggle_hidden_folders)?.setChecked(viewModel.isShowHiddenFolders)
-        menu?.findItem(R.id.create_folder)?.isVisible = action.canCreateFolder && isFolderManagementSupported
+        menu?.findItem(R.id.create_folder)?.isVisible =
+            action.canCreateFolder && isFolderManagementSupported && !isChoosingNewFolderParent
         return super.onPrepareOptionsMenu(menu)
     }
 
@@ -251,8 +323,8 @@ class ChooseFolderActivity : BaseActivity() {
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
-            android.R.id.home -> finish()
-            R.id.create_folder -> showCreateFolderDialog()
+            android.R.id.home -> if (isChoosingNewFolderParent) setChoosingNewFolderParent(false) else finish()
+            R.id.create_folder -> setChoosingNewFolderParent(true)
             R.id.toggle_hidden_folders -> setShowHiddenFolders(item.isChecked.not())
             R.id.list_folders -> refreshFolderList()
             else -> return super.onOptionsItemSelected(item)
@@ -324,6 +396,9 @@ class ChooseFolderActivity : BaseActivity() {
     companion object {
         private const val STATE_SCROLL_TO_FOLDER_ID = "scrollToFolderId"
         private const val STATE_SHOW_HIDDEN_FOLDERS = "showHiddenFolders"
+        private const val STATE_CHOOSING_NEW_FOLDER_PARENT = "choosingNewFolderParent"
+        private const val STATE_NEW_FOLDER_PARENT_ID = "newFolderParentId"
+        private const val STATE_NEW_FOLDER_PARENT_NAME = "newFolderParentName"
         private const val EXTRA_ACCOUNT = "accountUuid"
         private const val EXTRA_CURRENT_FOLDER_ID = "currentFolderId"
         private const val EXTRA_SCROLL_TO_FOLDER_ID = "scrollToFolderId"

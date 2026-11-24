@@ -216,4 +216,16 @@ class DemoRemoteFolderOperationsTest {
         assertThat(outcome).isInstanceOf<Outcome.Failure<RemoteFolderOperationError>>()
         assertThat(demoStore.getFolder("nested")).isNotNull()
     }
+
+    @Test
+    fun `create() of subfolder should use the parent's display name`() = runTest {
+        // Arrange
+        val testSubject = DemoRemoteFolderCreator(demoStore)
+
+        // Act
+        testSubject.create(FolderServerId("turing/Receipts"), mustCreate = true)
+
+        // Assert
+        assertThat(demoStore.getFolder("turing/Receipts")?.name).isEqualTo("Turing/Receipts")
+    }
 }

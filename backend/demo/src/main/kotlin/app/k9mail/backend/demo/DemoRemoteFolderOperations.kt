@@ -41,7 +41,7 @@ internal class DemoRemoteFolderCreator(
         demoStore.addFolder(
             folderServerId = serverId,
             folder = DemoStoreFolder(
-                name = serverId,
+                name = buildDisplayName(serverId),
                 type = folderType,
                 messageServerIds = emptyList(),
                 resourcePath = null,
@@ -49,6 +49,16 @@ internal class DemoRemoteFolderCreator(
         )
 
         return Outcome.success(RemoteFolderCreationOutcome.Success.Created)
+    }
+
+    /**
+     * Uses the parent's display name (e.g. "Turing" for the server ID "turing"), so the folder is shown below its
+     * parent.
+     */
+    private fun buildDisplayName(serverId: String): String {
+        val parentServerId = serverId.substringBeforeLast(FOLDER_DEFAULT_PATH_DELIMITER, missingDelimiterValue = "")
+        val parentName = demoStore.getFolder(parentServerId)?.name ?: return serverId
+        return parentName + FOLDER_DEFAULT_PATH_DELIMITER + serverId.substringAfterLast(FOLDER_DEFAULT_PATH_DELIMITER)
     }
 }
 

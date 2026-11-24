@@ -53,6 +53,8 @@
     <string name="choose_folder_copy_title">Copy to…</string>
     <!-- Title of the screen to choose the new parent folder when moving a folder -->
     <string name="choose_folder_move_folder_title">Move folder to…</string>
+    <!-- Title of the folder list screen while choosing where to create a new folder -->
+    <string name="choose_folder_create_folder_in_title">Create folder in…</string>
     <!-- Entry on the "Move folder to…" screen to move the folder to the top level of the folder hierarchy -->
     <string name="choose_folder_top_level">Top level</string>
 

@@ -58,18 +58,23 @@ class ChooseFolderViewModel(
     fun getCreateFolderResults(): LiveData<CreateFolderResult> = createFolderResultLiveData
 
     /**
-     * Creates a folder at the top level of the folder hierarchy, so it can be chosen right away.
+     * Creates a folder, so it can be chosen right away.
+     *
+     * @param parentFolderId The ID of the parent folder, or `null` to create the folder at the top level.
+     * @param parentDisplayName The display name of the parent folder, used to build the new folder's display name.
      */
-    fun createFolder(account: LegacyAccountDto, name: String) {
+    fun createFolder(account: LegacyAccountDto, parentFolderId: Long?, parentDisplayName: String?, name: String) {
         if (operationInProgressLiveData.value == true) return
 
         operationInProgressLiveData.value = true
         viewModelScope.launch {
-            val outcome = folderManagementRepository.create(account.id, parentFolderId = null, name = name)
+            val outcome = folderManagementRepository.create(account.id, parentFolderId, name)
+            val trimmedName = name.trim()
+            val displayName = parentDisplayName?.let { "$it${account.folderPathDelimiter}$trimmedName" } ?: trimmedName
 
             operationInProgressLiveData.value = false
             createFolderResultLiveData.value = outcome.fold(
-                onSuccess = { folderId -> CreateFolderResult.Created(folderId, displayName = name.trim()) },
+                onSuccess = { folderId -> CreateFolderResult.Created(folderId, displayName) },
                 onFailure = { error -> CreateFolderResult.Failed(FolderOperationEvent(FolderOperation.CREATE, error)) },
             )
         }
